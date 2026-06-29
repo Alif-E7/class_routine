@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  role      String   @default("ADMIN")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Semester {
+  id             String         @id @default(uuid())
+  name           String         @unique // e.g. "July-December 2024"
+  year           Int
+  createdAt      DateTime       @default(now())
+  routineEntries RoutineEntry[]
+}
+
+// Global identity tables — no semesterId. A teacher, room, course, etc. exists
+// once and is reused across every semester.
+model Department {
+  id       String    @id @default(uuid())
+  deptCode String    @unique
+  deptName String
+  faculty  String    @default("Other") // e.g. "Engineering", "Science"
+  teachers Teacher[]
+  courses  Course[]
+  sections Section[]
+}
+
+model Teacher {
+  id            String         @id @default(uuid())
+  teacherCode   String         @unique
+  teacherName   String
+  deptCode      String
+  designation   String?        // e.g. "Associate Professor", "Assistant Professor", "Lecturer"
+  department    Department     @relation(fields: [deptCode], references: [deptCode])
+  routineEntries RoutineEntry[]
+}
+
+model Room {
+  id             String         @id @default(uuid())
+  roomNo         String         @unique
+  building       String?
+  routineEntries RoutineEntry[]
+}
+
+model Course {
+  id             String         @id @default(uuid())
+  courseCode     String         @unique
+  courseName     String
+  credit         Float
+  deptCode       String
+  department     Department     @relation(fields: [deptCode], references: [deptCode])
+  routineEntries RoutineEntry[]
+}
+
+model Section {
+  id             String         @id @default(uuid())
+  deptCode       String
+  year           Int            // 1, 2, 3, 4  — e.g. 4 means "4th year"
+  semester       Int            // 1, 2        — e.g. 1 means "odd semester", 2 means "even semester"
+  department     Department     @relation(fields: [deptCode], references: [deptCode])
+  routineEntries RoutineEntry[]
+
+  @@unique([deptCode, year, semester])
+}
+
+model TimeSlot {
+  id             String         @id @default(uuid())
+  startTime      String         // e.g. "09:00"
+  endTime        String         // e.g. "10:00"
+  routineEntries RoutineEntry[]
+
+  @@unique([startTime, endTime])
+}
+
+// The only semester-scoped table. A routine entry answers:
+// "In semester S, which section attends which course, with which teacher, in which room, at which slot?"
+model RoutineEntry {
+  id         String   @id @default(uuid())
+  day        String   // e.g. "SUN", "MON", "THR"
+  sectionId  String
+  courseId   String
+  teacherId  String
+  roomId     String
+  timeSlotId String
+  semesterId String
+
+  section    Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  course     Course   @relation(fields: [courseId], references: [id])
+  teacher    Teacher  @relation(fields: [teacherId], references: [id])
+  room       Room     @relation(fields: [roomId], references: [id])
+  timeSlot   TimeSlot @relation(fields: [timeSlotId], references: [id])
+  semester   Semester @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime @default(now())
+
+  @@index([semesterId, sectionId])
+  @@index([semesterId, day, timeSlotId])
+}

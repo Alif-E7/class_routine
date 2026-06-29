@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+@theme {
+  /* ── Blue Ocean Theme ── */
+  --color-ocean-950: #03111f;
+  --color-ocean-900: #071e38;
+  --color-ocean-800: #0c2d52;
+  --color-ocean-700: #164e7a;
+  --color-ocean-600: #1a6ea8;
+  --color-ocean-500: #0284c7;
+  --color-ocean-400: #0ea5e9;
+  --color-ocean-300: #38bdf8;
+  --color-ocean-200: #bae6fd;
+  --color-ocean-100: #e0f2fe;
+  --color-ocean-50:  #f0f9ff;
+
+  --color-teal-ocean: #0891b2;
+  --color-cyan-ocean: #06b6d4;
+  --color-foam:       #f0f9ff;
+
+  /* Legacy aliases kept for TimetableGrid */
+  --color-university-primary:    #0c2d52;
+  --color-university-secondary:  #03111f;
+  --color-university-accent:     #38bdf8;
+  --color-routine-header:        #0c2d52;
+  --color-routine-subheader:     #1a6ea8;
+  --color-routine-row-light:     #e0f2fe;
+  --color-routine-row-alt:       #f0f9ff;
+  --color-routine-break:         #fde047;
+  --color-routine-border:        #7dd3fc;
+}
+
+@layer base {
+  body {
+    @apply bg-ocean-50 text-slate-900 font-sans;
+  }
+}
+
+@layer utilities {
+  .routine-cell      { @apply border border-routine-border p-2 text-center text-sm relative; }
+  .routine-header    { @apply bg-routine-header text-white font-semibold text-center p-2 border border-ocean-900; }
+  .routine-subheader { @apply bg-routine-subheader text-white font-medium text-center p-2 border border-ocean-700; }
+  .routine-row-header{ @apply bg-slate-200 text-slate-800 font-bold text-center p-2 border border-routine-border whitespace-nowrap; }
+  .routine-break {
+    @apply bg-routine-break text-slate-800 font-bold text-center border border-yellow-500 flex flex-col items-center justify-center;
+    writing-mode: vertical-rl;
+    text-orientation: upright;
+  }
+
+  /* Course cell colors — ocean tints */
+  .course-bg-0 { @apply bg-white; }
+  .course-bg-1 { @apply bg-sky-50; }
+  .course-bg-2 { @apply bg-cyan-50; }
+  .course-bg-3 { @apply bg-teal-50; }
+  .course-bg-4 { @apply bg-blue-50; }
+  .course-bg-5 { @apply bg-indigo-50; }
+}
