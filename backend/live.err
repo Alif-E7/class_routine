@@ -1,0 +1,64 @@
+UNHANDLED ERROR: Error: Access denied for user 'routine_app'@'localhost' (using password: YES)
+    at C:\Class_Routine\backend\src\routes\upload.js:59:40
+    at Layer.handle [as handle_request] (C:\Class_Routine\backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Class_Routine\backend\node_modules\express\lib\router\route.js:149:13)
+    at done (C:\Class_Routine\backend\node_modules\multer\lib\make-middleware.js:47:7)
+    at indicateDone (C:\Class_Routine\backend\node_modules\multer\lib\make-middleware.js:51:68)
+    at Multipart.<anonymous> (C:\Class_Routine\backend\node_modules\multer\lib\make-middleware.js:168:7)
+    at Multipart.emit (node:events:518:28)
+    at emitCloseNT (node:internal/streams/destroy:148:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'ER_ACCESS_DENIED_ERROR',
+  errno: 1045,
+  sqlState: '28000',
+  sqlMessage: "Access denied for user 'routine_app'@'localhost' (using password: YES)",
+  sql: undefined
+}
+UNHANDLED ERROR: Error: Access denied for user 'routine_app'@'localhost' (using password: YES)
+    at C:\Class_Routine\backend\src\routes\upload.js:59:40
+    at Layer.handle [as handle_request] (C:\Class_Routine\backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Class_Routine\backend\node_modules\express\lib\router\route.js:149:13)
+    at done (C:\Class_Routine\backend\node_modules\multer\lib\make-middleware.js:47:7)
+    at indicateDone (C:\Class_Routine\backend\node_modules\multer\lib\make-middleware.js:51:68)
+    at Multipart.<anonymous> (C:\Class_Routine\backend\node_modules\multer\lib\make-middleware.js:168:7)
+    at Multipart.emit (node:events:518:28)
+    at emitCloseNT (node:internal/streams/destroy:148:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'ER_ACCESS_DENIED_ERROR',
+  errno: 1045,
+  sqlState: '28000',
+  sqlMessage: "Access denied for user 'routine_app'@'localhost' (using password: YES)",
+  sql: undefined
+}
+UNHANDLED ERROR: Error: Access denied for user 'routine_app'@'localhost' (using password: YES)
+    at C:\Class_Routine\backend\src\routes\upload.js:59:40
+    at Layer.handle [as handle_request] (C:\Class_Routine\backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Class_Routine\backend\node_modules\express\lib\router\route.js:149:13)
+    at done (C:\Class_Routine\backend\node_modules\multer\lib\make-middleware.js:47:7)
+    at indicateDone (C:\Class_Routine\backend\node_modules\multer\lib\make-middleware.js:51:68)
+    at Multipart.<anonymous> (C:\Class_Routine\backend\node_modules\multer\lib\make-middleware.js:168:7)
+    at Multipart.emit (node:events:518:28)
+    at emitCloseNT (node:internal/streams/destroy:148:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'ER_ACCESS_DENIED_ERROR',
+  errno: 1045,
+  sqlState: '28000',
+  sqlMessage: "Access denied for user 'routine_app'@'localhost' (using password: YES)",
+  sql: undefined
+}
+UNHANDLED ERROR: Error: Access denied for user 'routine_app'@'localhost' (using password: YES)
+    at C:\Class_Routine\backend\src\routes\upload.js:59:40
+    at Layer.handle [as handle_request] (C:\Class_Routine\backend\node_modules\express\lib\router\layer.js:95:5)
+    at next (C:\Class_Routine\backend\node_modules\express\lib\router\route.js:149:13)
+    at done (C:\Class_Routine\backend\node_modules\multer\lib\make-middleware.js:47:7)
+    at indicateDone (C:\Class_Routine\backend\node_modules\multer\lib\make-middleware.js:51:68)
+    at Multipart.<anonymous> (C:\Class_Routine\backend\node_modules\multer\lib\make-middleware.js:168:7)
+    at Multipart.emit (node:events:518:28)
+    at emitCloseNT (node:internal/streams/destroy:148:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'ER_ACCESS_DENIED_ERROR',
+  errno: 1045,
+  sqlState: '28000',
+  sqlMessage: "Access denied for user 'routine_app'@'localhost' (using password: YES)",
+  sql: undefined
+}

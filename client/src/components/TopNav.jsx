@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Calendar, Shield, User, LogOut, LogIn, Waves } from 'lucide-react';
+import { Upload, History, Shield, User, LogOut, LogIn, Waves } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
@@ -12,7 +12,7 @@ const TopNav = () => {
   const handleLogout = () => {
     logout();
     toast.success('Logged out successfully');
-    navigate('/');
+    navigate('/login');
   };
 
   const navLink = (to, label, Icon, exact = false) => {
@@ -37,10 +37,9 @@ const TopNav = () => {
 
   return (
     <div className="w-full bg-linear-to-r from-ocean-950 via-ocean-900 to-ocean-950 text-white flex items-center justify-between h-16 px-6 shadow-2xl shrink-0 z-10 border-b border-sky-500/20">
-
       {/* Left — Brand + Nav */}
       <div className="flex items-center gap-8">
-        <Link to="/" className="flex items-center gap-3 group">
+        <Link to="/history" className="flex items-center gap-3 group">
           <div className="bg-linear-to-br from-sky-400 to-ocean-600 p-2 rounded-xl shadow-lg shadow-sky-900/40 group-hover:scale-105 transition-transform">
             <Waves className="w-5 h-5 text-white" />
           </div>
@@ -50,8 +49,8 @@ const TopNav = () => {
         </Link>
 
         <nav className="flex items-center gap-1">
-          {navLink('/', 'Home', Calendar, true)}
-          {isAdmin && navLink('/admin', 'Admin Panel', Shield)}
+          {navLink('/upload', 'Upload', Upload)}
+          {navLink('/history', 'History', History)}
         </nav>
       </div>
 
@@ -64,8 +63,12 @@ const TopNav = () => {
                 <User className="w-3.5 h-3.5 text-sky-300" />
               </div>
               <div className="text-left">
-                <p className="text-xs font-semibold text-white leading-tight">{user?.email}</p>
-                <p className="text-[9px] text-sky-400 leading-tight tracking-widest uppercase">Administrator</p>
+                <p className="text-xs font-semibold text-white leading-tight">
+                  {user?.email}
+                </p>
+                <p className="text-[9px] text-sky-400 leading-tight tracking-widest uppercase">
+                  Administrator
+                </p>
               </div>
             </div>
             <button

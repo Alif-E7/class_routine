@@ -6,8 +6,34 @@ and renders it as a polished, printable weekly timetable on the homepage.
 ## Tech stack
 - **Frontend:** React 19 + Vite + Tailwind CSS 4 + lucide-react
 - **Backend:** Node.js + Express + Prisma (PostgreSQL)
-- **PDF Export:** html2canvas + jsPDF
+- **PDF Export:** `libreoffice --headless --convert-to pdf` (DOCX is generated via the `docx` library and converted server-side)
 - **Container:** Docker + docker-compose
+
+> **Note:** PDF export requires [LibreOffice](https://www.libreoffice.org/) installed on the backend host (the
+> container's `Dockerfile.server` adds it). If LibreOffice is missing, the `/api/batches/:id/export.pdf` endpoint
+> returns `501 PDF_UNAVAILABLE`; the `.docx` endpoint still works without it.
+
+## AI assist (optional)
+
+The backend ships a thin wrapper (`backend/src/services/aiProvider.js`) around the Google Gemini API. It powers two features:
+
+1. **Friendly failure hints** — when the CSP scheduler reports infeasibility, the `/generate` failure handler enriches the response with a short admin-facing paragraph explaining likely causes (room shortage, teacher unavailability, classes-per-week > slots, etc.).
+2. **Ask AI to draft an edit** — `POST /api/batches/:id/edit` takes a free-text prompt like `"please move CSE406 from Sunday 9am to Monday 10am"` and returns a structured proposal `{kind, summary, change?, question?, concerns[]}` that the admin UI can show before the admin confirms any actual change. This endpoint is **advisory only** — it never mutates the schedule; applying the proposal would require a separate admin-only `/apply` endpoint (out of scope for Step 8).
+
+Both features are **opt-in**. The core scheduler does not depend on AI; if `GEMINI_API_KEY` is empty, both features degrade gracefully (the failure endpoint returns the structured error unchanged, and `/edit` returns `503 AI_UNAVAILABLE`).
+
+### Environment variables
+
+Set these in `backend/.env` (gitignored — never commit your real key):
+
+```bash
+GEMINI_API_KEY=                # leave blank to disable AI assist entirely
+GEMINI_MODEL=gemini-2.5-flash  # default model
+GEMINI_ENDPOINT=https://generativelanguage.googleapis.com/v1beta/models
+GEMINI_TIMEOUT_MS=6000         # per-call timeout
+```
+
+To enable AI assist locally, paste your Gemini API key into `backend/.env` (`GEMINI_API_KEY=...`). The `.env.example` file in `backend/` ships placeholders only — the real key stays in `.env` which is `.gitignore`d.
 
 ## Project structure
 ```

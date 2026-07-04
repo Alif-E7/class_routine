@@ -2,8 +2,9 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './contexts/AuthContext';
 import Layout from './components/Layout';
-import Dashboard from './pages/Dashboard';
-import Homepage from './pages/Homepage';
+import UploadPage from './pages/UploadPage';
+import HistoryPage from './pages/HistoryPage';
+import RoutinePage from './pages/RoutinePage';
 import LoginPage from './pages/LoginPage';
 import ProtectedRoute from './components/ProtectedRoute';
 
@@ -12,28 +13,19 @@ function App() {
     <AuthProvider>
       <Toaster position="top-right" />
       <Routes>
-        {/* Public layout routes */}
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Homepage />} />
-        </Route>
-
         {/* Login page (no layout) */}
         <Route path="/login" element={<LoginPage />} />
 
-        {/* Protected admin route */}
-        <Route
-          path="/admin"
-          element={
-            <ProtectedRoute>
-              <Layout />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<Dashboard />} />
+        {/* App routes — share the Layout (TopNav + scrollable main) */}
+        <Route element={<Layout />}>
+          <Route index element={<Navigate to="/history" replace />} />
+          <Route path="/upload" element={<UploadPage />} />
+          <Route path="/history" element={<HistoryPage />} />
+          <Route path="/batches/:id" element={<RoutinePage />} />
         </Route>
 
         {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/history" replace />} />
       </Routes>
     </AuthProvider>
   );

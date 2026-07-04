@@ -151,7 +151,6 @@ Slots referenced by `RoutineEntries` are auto-added. Include this sheet only if 
 | Canonical | Accepted aliases |
 |---|---|
 | `dept_code` | `dept`, `department`, `department_code`, `deptcode` |
-| `teacher_code` | `teacher`, `teachercode`, `teacher_id`, `teacher_short`, `initial` |
 | `course_code` | `course`, `coursecode`, `course_id`, `subject`, `subject_code`, `code` |
 | `room_no` | `room`, `roomno`, `room_number`, `room_num`, `classroom`, `hall`, `lab` |
 | `start_time` | `start`, `starttime`, `from`, `time_from`, `begin`, `class_start` |
