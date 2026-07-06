@@ -1,0 +1,41 @@
+[backend] listening on http://localhost:4000
+         health: GET /api/health
+         upload: POST /api/upload  (multipart .xlsx)
+2026-07-05T15:41:11.805Z  POST /api/batches/1/explain-error
+2026-07-05T15:42:40.290Z  POST /api/batches/1/explain-error
+2026-07-05T15:42:46.096Z  GET /api/batches
+2026-07-05T15:42:46.161Z  GET /api/batches
+2026-07-05T15:42:47.935Z  GET /api/batches/3
+2026-07-05T15:42:47.941Z  GET /api/batches/3/schedule
+2026-07-05T15:42:47.962Z  GET /api/batches/3
+2026-07-05T15:42:47.986Z  GET /api/batches/3/schedule
+2026-07-05T15:42:49.214Z  POST /api/batches/3/generate
+2026-07-05T15:42:58.881Z  GET /api/batches
+2026-07-05T15:42:58.898Z  GET /api/batches
+2026-07-05T15:43:18.690Z  POST /api/upload
+2026-07-05T15:43:21.106Z  GET /api/batches
+2026-07-05T15:43:21.126Z  GET /api/batches
+2026-07-05T15:43:22.648Z  GET /api/batches/4
+2026-07-05T15:43:22.651Z  GET /api/batches/4/schedule
+2026-07-05T15:43:22.669Z  GET /api/batches/4
+2026-07-05T15:43:22.673Z  GET /api/batches/4/schedule
+2026-07-05T15:43:23.655Z  POST /api/batches/4/generate
+2026-07-05T15:48:01.520Z  POST /api/batches/4/generate
+2026-07-05T15:48:08.647Z  POST /api/batches/4/generate
+2026-07-05T15:48:10.057Z  POST /api/batches/4/generate
+2026-07-05T15:48:12.917Z  GET /api/batches
+2026-07-05T15:48:12.932Z  GET /api/batches
+2026-07-05T15:48:14.364Z  GET /api/batches/1
+2026-07-05T15:48:14.368Z  GET /api/batches/1/schedule
+2026-07-05T15:48:14.384Z  GET /api/batches/1
+2026-07-05T15:48:14.387Z  GET /api/batches/1/schedule
+2026-07-05T15:48:19.191Z  POST /api/batches/1/explain-error
+2026-07-05T15:48:24.511Z  POST /api/batches/1/explain-error
+2026-07-05T15:48:37.411Z  POST /api/batches/1/explain-error
+2026-07-05T15:49:18.155Z  GET /api/batches
+2026-07-05T15:49:18.171Z  GET /api/batches
+2026-07-05T15:49:19.598Z  GET /api/batches/4
+2026-07-05T15:49:19.603Z  GET /api/batches/4/schedule
+2026-07-05T15:49:19.617Z  GET /api/batches/4
+2026-07-05T15:49:19.620Z  GET /api/batches/4/schedule
+2026-07-05T15:49:24.132Z  POST /api/batches/4/generate

@@ -50,11 +50,16 @@ function parseTime(s) {
  * [break_start, break_end) into discrete slots of `durationMinutes`.
  * Returns: { day -> [ { start, end } ] } ordered chronologically.
  *
+ * `durationMinutes` is per-course (from courses.derived_duration_min),
+ * not a Config column — Config only carries the global daily window
+ * and break. We compute one slot map per distinct duration we see,
+ * and cache it inside solve() via getDaySlots().
+ *
  * The break is treated as a hard wall: a slot cannot start before
  * break_start and end after break_end (it would straddle lunch), but
  * the break window itself is excluded from the candidate slot list.
  */
-function buildAvailableWindows(config) {
+function buildAvailableWindows(config, durationMinutes) {
   const cs = parseTime(config.class_start);
   const ce = parseTime(config.class_end);
   const bs = parseTime(config.break_start);
@@ -63,6 +68,12 @@ function buildAvailableWindows(config) {
     throw new SchedulingError(
       'Config time window is invalid: need class_start < break_start < break_end < class_end',
       { config }
+    );
+  }
+  if (!Number.isInteger(durationMinutes) || durationMinutes <= 0) {
+    throw new SchedulingError(
+      'durationMinutes must be a positive integer',
+      { durationMinutes }
     );
   }
   const days = String(config.working_days)
@@ -74,12 +85,12 @@ function buildAvailableWindows(config) {
   for (const day of days) {
     const slots = [];
     // First half — before break.
-    for (let t = cs; t + config.duration_minutes <= bs; t += config.duration_minutes) {
-      slots.push({ start: t, end: t + config.duration_minutes });
+    for (let t = cs; t + durationMinutes <= bs; t += durationMinutes) {
+      slots.push({ start: t, end: t + durationMinutes });
     }
     // Second half — after break.
-    for (let t = be; t + config.duration_minutes <= ce; t += config.duration_minutes) {
-      slots.push({ start: t, end: t + config.duration_minutes });
+    for (let t = be; t + durationMinutes <= ce; t += durationMinutes) {
+      slots.push({ start: t, end: t + durationMinutes });
     }
     out[day] = slots;
   }
@@ -163,7 +174,24 @@ function solve(input, options = {}) {
   const budget = options.budget ?? DEFAULT_BUDGET;
   const logger = options.logger || (() => {});
 
-  const daySlots = buildAvailableWindows(input.config);
+  // Per-duration slot cache. Different courses can have different
+  // derived_duration_min (e.g. 50-minute theory vs 110-minute lab),
+  // so we build the daily slot map once per distinct duration instead
+  // of sharing one map across all courses.
+  const daySlotsByDuration = new Map();
+  function getDaySlots(duration) {
+    if (!daySlotsByDuration.has(duration)) {
+      daySlotsByDuration.set(duration, buildAvailableWindows(input.config, duration));
+    }
+    return daySlotsByDuration.get(duration);
+  }
+  // Cached working-day order (same for every duration — derived purely
+  // from config.working_days) so we don't recompute the key list on
+  // every backtrack frame. We still filter out usedDays per course.
+  const workingDays = String(input.config.working_days)
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
   const unavailMap = indexUnavailability(input.teacher_unavailability || []);
   const weightTable = buildWeightTable(input.room_preference || []);
   const ordered = sortByConstraintTightness(
@@ -176,6 +204,15 @@ function solve(input, options = {}) {
   const roomBusy = new IntervalMap();
   const semBusy = new IntervalMap();
   const assignments = [];
+
+  // Failure diagnostics: populated at the moment backtrack returns
+  // false so the SchedulingError.details we throw can distinguish
+  // courses that actually failed placement (failing) from courses
+  // the solver never reached because an earlier course failed
+  // (not_attempted). Without this split, every infeasible run used
+  // to report the full `ordered` list as unplaceable — useless to
+  // the AI which couldn't tell which course was the root cause.
+  const failingCourses = new Set();
 
   let iterations = 0;
 
@@ -207,7 +244,7 @@ function solve(input, options = {}) {
     if (eligibleRooms.length === 0) return false;
 
     for (const day of dayList) {
-      const slots = daySlots[day] || [];
+      const slots = getDaySlots(course.derived_duration_min)[day] || [];
       // Skip days where teacher is fully blocked by unavailability.
       const teacherBlocks = unavailabilityForDay(unavailMap, course.teacher_abbr, day);
 
@@ -287,7 +324,7 @@ function solve(input, options = {}) {
       // Try days we haven't used yet for this course. Shuffle the
       // remaining working days so the search varies; usedDays is
       // consulted in the placement function via set membership.
-      const remaining = Object.keys(daySlots).filter((d) => !usedDays.has(d));
+      const remaining = workingDays.filter((d) => !usedDays.has(d));
       const dayList = shuffle(remaining, rng);
 
       let placed = false;
@@ -297,7 +334,7 @@ function solve(input, options = {}) {
         // which day we successfully placed on to mark it as used.
         const eligibleRooms = filterByType(input.rooms, course);
         if (eligibleRooms.length === 0) break;
-        const slots = daySlots[day];
+        const slots = getDaySlots(course.derived_duration_min)[day];
         const teacherBlocks = unavailabilityForDay(unavailMap, course.teacher_abbr, day);
 
         let dayPlaced = false;
@@ -359,19 +396,39 @@ function solve(input, options = {}) {
 
       if (!placed) {
         undoAssignmentsForCourse(course.course_code);
+        failingCourses.add(course.course_code);
         return false;
       }
     }
 
     if (backtrack(i + 1)) return true;
     undoAssignmentsForCourse(course.course_code);
+    failingCourses.add(course.course_code);
     return false;
   }
 
   if (!backtrack(0)) {
+    // Split unplaced courses into:
+    //   failing         — actually attempted, but backtrack returned
+    //                     false for them (recorded in
+    //                     failingCourses at the moment of failure).
+    //   not_attempted   — never reached because an earlier course
+    //                     failed first; the search never recursed
+    //                     into their frame.
+    // Anything that *was* placed is not in either list.
+    const placedCodes = new Set(assignments.map((a) => a.course_code));
+    const not_attempted = ordered
+      .map((c) => c.course_code)
+      .filter((code) => !failingCourses.has(code) && !placedCodes.has(code));
     throw new SchedulingError(
       'No feasible schedule found for the given inputs',
-      { unplaceable: ordered.map((c) => c.course_code) }
+      {
+        // External contract: `unplaceable` is the admin-visible
+        // list of courses the solver could not place. Backwards
+        // compat: route + tests still read details.unplaceable.
+        unplaceable: [...failingCourses],
+        not_attempted,
+      }
     );
   }
   return assignments;

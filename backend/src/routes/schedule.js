@@ -33,8 +33,15 @@
  *       success: false,
  *       code: 'SCHEDULE_INFEASIBLE',
  *       message: <human readable>,
- *       unplaceable: [<course_code>, ...],
+ *       unplaceable: [<course_code>, ...],   // actually-attempted, but failed
+ *       not_attempted: [<course_code>, ...], // never reached (empty if
+ *                                            //   every course was tried)
  *       details: {...},
+ *       diagnostics: {
+ *         unplaceable_courses: [...],
+ *         capacity_by_type:    [...],  // per (type, duration) capacity vs demand
+ *         teacher_load:        [...],  // only for unplaceable-course teachers
+ *       },
  *       friendly_hint: <string|null>,   // optional, only if aiProvider ran
  *     }
  *
@@ -55,6 +62,7 @@ const { withTransaction, getPool } = require('../db/pool');
 const { loadBatchForSchedule, LoadError } = require('../services/routineLoader');
 const { solve, SchedulingError } = require('../services/scheduler');
 const { explainFailure } = require('../services/aiProvider');
+const { buildDiagnostics } = require('../services/diagnostics');
 
 // 10-minute ceiling per the build prompt's "long-running" callout.
 const SOLVE_BUDGET_OVERRIDE = parseInt(process.env.SCHEDULER_BUDGET || '', 10) || 200_000;
@@ -114,12 +122,36 @@ router.post('/:id/generate', async (req, res, next) => {
       // anything; return structured error. Optionally enrich with an
       // AI-generated friendly hint (advisory only).
       if (err instanceof SchedulingError) {
+        // Compute capacity-vs-demand diagnostics BEFORE returning so
+        // the client (and the AI layer) can see WHY the solver gave
+        // up, not just which courses were left over. The diagnostics
+        // itself is pure, non-throwing, and does not touch the DB.
+        const unplaceableCodes = (err.details && err.details.unplaceable) || [];
+        // `not_attempted` only exists when the scheduler can tell
+        // the difference between "tried and failed" and "never
+        // reached because an earlier course failed". Older callers
+        // of solve() (tests) still get the unplaceable-only shape,
+        // so this is optional.
+        const notAttemptedCodes = (err.details && err.details.not_attempted) || [];
+        const diagnostics = buildDiagnostics(
+          {
+            config: loaded.config,
+            courses: loaded.courses,
+            rooms: loaded.rooms,
+            room_preference: loaded.room_preference,
+            teacher_unavailability: loaded.teacher_unavailability,
+          },
+          unplaceableCodes
+        );
+
         const baseBody = {
           success: false,
           code: err.code || 'SCHEDULE_INFEASIBLE',
           message: err.message,
-          unplaceable: (err.details && err.details.unplaceable) || null,
+          unplaceable: unplaceableCodes || null,
+          not_attempted: notAttemptedCodes,
           details: err.details || null,
+          diagnostics,
         };
         // Map a couple of specific failures to more helpful codes.
         if (err.message && err.message.includes('budget')) {
@@ -127,7 +159,7 @@ router.post('/:id/generate', async (req, res, next) => {
         }
         let hint = null;
         try {
-          const aiResult = await explainFailure(err);
+          const aiResult = await explainFailure(err, { diagnostics });
           if (aiResult && aiResult.friendly_hint) hint = aiResult.friendly_hint;
           if (aiResult && aiResult.available === false) {
             // No AI configured — that's fine, the structured error

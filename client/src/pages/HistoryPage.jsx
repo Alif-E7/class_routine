@@ -8,7 +8,10 @@ import {
   AlertCircle,
   CheckCircle2,
   ChevronRight,
+  Trash2,
+  X,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { batchesApi } from '../api/client';
 
 const STATUS_STYLES = {
@@ -30,6 +33,10 @@ const HistoryPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Delete confirmation modal state.
+  const [deleteTarget, setDeleteTarget] = useState(null); // {id, filename} | null
+  const [deleting, setDeleting] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -45,9 +52,51 @@ const HistoryPage = () => {
 
   useEffect(() => { load(); }, [load]);
 
+  // Open the confirm modal; never let the click bubble to the row's
+  // onClick (which navigates to the routine page).
+  const handleAskDelete = (e, batch) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (batchingHasSideEffects(batch)) {
+      setDeleteTarget(batch);
+    } else {
+      setDeleteTarget(batch);
+    }
+  };
+
+  const batchingHasSideEffects = (_b) => true; // keep modal for every delete — safer
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const tid = toast.loading(`Deleting "${deleteTarget.filename}"…`);
+    try {
+      const res = await batchesApi.delete(deleteTarget.id);
+      const removed = res?.deleted || {};
+      const total = Object.values(removed).reduce((s, n) => s + (Number(n) || 0), 0);
+      const extra = total > 0 ? ` (${total} related row${total === 1 ? '' : 's'} cleared)` : '';
+      toast.success(`Deleted "${deleteTarget.filename}"${extra}.`, { id: tid });
+      setDeleteTarget(null);
+      await load();
+    } catch (err) {
+      const code = err.code;
+      let msg = err.message || 'Failed to delete batch.';
+      if (code === 'BATCH_NOT_FOUND') {
+        msg = 'This batch was already deleted.';
+        setDeleteTarget(null);
+        await load();
+      } else if (code === 'INVALID_BATCH_ID') {
+        msg = 'Invalid batch id in URL.';
+      }
+      toast.error(msg, { id: tid, duration: 6000 });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <div className="bg-linear-to-br from-ocean-900 to-ocean-800 rounded-2xl px-6 py-5 text-white border border-sky-500/15 shadow-lg flex items-center justify-between">
+      <div className="bg-gradient-to-br from-ocean-900 to-ocean-800 rounded-2xl px-6 py-5 text-white border border-sky-500/15 shadow-lg flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="bg-sky-400/20 p-2.5 rounded-xl border border-sky-400/20">
             <Calendar className="w-5 h-5 text-sky-400" />
@@ -120,7 +169,7 @@ const HistoryPage = () => {
                 <th className="text-right px-5 py-3 font-semibold w-32">Rooms</th>
                 <th className="text-right px-5 py-3 font-semibold w-32">Classes</th>
                 <th className="text-left px-5 py-3 font-semibold">Imported</th>
-                <th className="w-12" />
+                <th className="w-24" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -156,25 +205,28 @@ const HistoryPage = () => {
                         </span>
                       )}
                     </td>
-                    <td className="px-5 py-3 text-right tabular-nums text-slate-700">
-                      {b.counts.teachers}
-                    </td>
-                    <td className="px-5 py-3 text-right tabular-nums text-slate-700">
-                      {b.counts.courses}
-                    </td>
-                    <td className="px-5 py-3 text-right tabular-nums text-slate-700">
-                      {b.counts.rooms}
-                    </td>
-                    <td className="px-5 py-3 text-right tabular-nums text-ocean-700 font-semibold">
-                      {b.counts.assignments}
-                    </td>
+                    <td className="px-5 py-3 text-right tabular-nums text-slate-700">{b.counts.teachers}</td>
+                    <td className="px-5 py-3 text-right tabular-nums text-slate-700">{b.counts.courses}</td>
+                    <td className="px-5 py-3 text-right tabular-nums text-slate-700">{b.counts.rooms}</td>
+                    <td className="px-5 py-3 text-right tabular-nums text-ocean-700 font-semibold">{b.counts.assignments}</td>
                     <td className="px-5 py-3 text-slate-500 text-xs">
                       {b.created_at
                         ? new Date(b.created_at).toLocaleString()
                         : '—'}
                     </td>
-                    <td className="px-5 py-3 text-slate-400">
-                      <ChevronRight className="w-4 h-4" />
+                    <td className="px-5 py-3 text-right">
+                      <div className="inline-flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={(e) => handleAskDelete(e, b)}
+                          title={`Delete batch #${b.id}`}
+                          aria-label={`Delete ${b.filename}`}
+                          className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                        <ChevronRight className="w-4 h-4 text-slate-400" />
+                      </div>
                     </td>
                   </tr>
                 );
@@ -183,8 +235,95 @@ const HistoryPage = () => {
           </table>
         </div>
       )}
+
+      <DeleteConfirmModal
+        target={deleteTarget}
+        busy={deleting}
+        onCancel={() => !deleting && setDeleteTarget(null)}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 };
+
+/**
+ * Small confirmation modal — no portal, no animation library;
+ * Tailwind + lucide only. Renders null when there's no target,
+ * so it doesn't add any node to the tree on the happy path.
+ */
+function DeleteConfirmModal({ target, busy, onCancel, onConfirm }) {
+  if (!target) return null;
+  const filename = target.filename || `batch #${target.id}`;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="delete-modal-title"
+      onClick={(e) => {
+        // Close on backdrop click unless a delete is in-flight.
+        if (e.target === e.currentTarget && !busy) onCancel();
+      }}
+    >
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <div className="flex items-center gap-2 text-slate-800 font-semibold">
+            <Trash2 className="w-5 h-5 text-red-500" />
+            <span id="delete-modal-title">Delete upload batch?</span>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 disabled:opacity-30"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="px-5 py-5 space-y-3 text-sm text-slate-700">
+          <p className="leading-relaxed">
+            You're about to permanently delete{' '}
+            <span className="font-mono font-semibold text-slate-900 break-all">
+              {filename}
+            </span>
+            .
+          </p>
+          <ul className="list-disc list-inside text-xs text-slate-500 space-y-0.5">
+            <li>All imported teachers, courses, and rooms will be cleared.</li>
+            <li>Credit rules, room/teacher preferences, and any saved schedule will also be removed.</li>
+            <li>This action cannot be undone.</li>
+          </ul>
+        </div>
+        <div className="px-5 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="px-4 py-2 rounded-lg text-sm font-semibold bg-red-600 hover:bg-red-500 text-white transition-colors flex items-center gap-2 disabled:opacity-50"
+          >
+            {busy ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Deleting…
+              </>
+            ) : (
+              <>
+                <Trash2 className="w-4 h-4" /> Yes, delete
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default HistoryPage;

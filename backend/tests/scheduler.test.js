@@ -28,7 +28,7 @@ const baseConfig = {
 
 describe('scheduler — buildAvailableWindows', () => {
   test('produces slots that respect the break window', () => {
-    const out = buildAvailableWindows(baseConfig);
+    const out = buildAvailableWindows(baseConfig, baseConfig.duration_minutes);
     const sun = out.SUN;
     expect(sun.length).toBeGreaterThan(0);
     // No slot should straddle the break (12:30 .. 13:30).
@@ -45,7 +45,7 @@ describe('scheduler — buildAvailableWindows', () => {
         ...baseConfig,
         class_start: '16:00',
         class_end: '09:00', // inverted
-      })
+      }, baseConfig.duration_minutes)
     ).toThrow(SchedulingError);
   });
 });
@@ -113,6 +113,60 @@ describe('scheduler — deliberately infeasible instance', () => {
         config: baseConfig, // 5 working days
       })
     ).toThrow(SchedulingError);
+  });
+
+  test('SchedulingError.details splits failing vs not_attempted courses', () => {
+    // First course provably infeasible (6 sessions/week on 5 days,
+    // distinct-day rule). Second course is feasible in isolation
+    // but the solver will never reach it because the first course
+    // fails. The thrown error must therefore list ONLY the first
+    // course in `unplaceable` and the second in `not_attempted`.
+    const courses = [
+      { course_code: 'FAILING', credit: 3.0, year_sem: '1-1', teacher_abbr: 'T1',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 6 },
+      { course_code: 'NEVER', credit: 3.0, year_sem: '1-2', teacher_abbr: 'T2',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 2 },
+    ];
+    let caught;
+    try {
+      solve({
+        courses,
+        rooms: [{ room_id: 'R1', type: 'classroom' }],
+        room_preference: [],
+        teacher_unavailability: [],
+        config: baseConfig,
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(SchedulingError);
+    expect(caught.details).toBeDefined();
+    expect(caught.details.unplaceable).toEqual(['FAILING']);
+    expect(caught.details.not_attempted).toEqual(['NEVER']);
+  });
+
+  test('single failing course has empty not_attempted list', () => {
+    // Backwards-compat: a single-course infeasible instance must
+    // report unplaceable=[that one course] and not_attempted=[].
+    const courses = [
+      { course_code: 'ONLY', credit: 3.0, year_sem: '1-1', teacher_abbr: 'T1',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 6 },
+    ];
+    let caught;
+    try {
+      solve({
+        courses,
+        rooms: [{ room_id: 'R1', type: 'classroom' }],
+        room_preference: [],
+        teacher_unavailability: [],
+        config: baseConfig,
+      });
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(SchedulingError);
+    expect(caught.details.unplaceable).toEqual(['ONLY']);
+    expect(caught.details.not_attempted).toEqual([]);
   });
 });
 

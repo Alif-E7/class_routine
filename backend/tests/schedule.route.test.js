@@ -231,12 +231,90 @@ describe('POST /api/batches/:id/generate', () => {
     expect(res.body.success).toBe(false);
     expect(Array.isArray(res.body.unplaceable)).toBe(true);
     expect(res.body.unplaceable).toContain('X');
+    // Only one course was in the fixture so not_attempted must be empty.
+    expect(Array.isArray(res.body.not_attempted)).toBe(true);
+    expect(res.body.not_attempted).toHaveLength(0);
     // AI is opt-in; with no API key configured we get null hint.
     expect(res.body.friendly_hint).toBeNull();
+    // NEW: route attaches a computed capacity-vs-demand diagnostics
+    // payload so the AI layer (and the client) can see WHY the
+    // solver gave up, not just which courses were left over.
+    expect(res.body.diagnostics).toBeDefined();
+    expect(Array.isArray(res.body.diagnostics.unplaceable_courses)).toBe(true);
+    expect(Array.isArray(res.body.diagnostics.capacity_by_type)).toBe(true);
+    expect(Array.isArray(res.body.diagnostics.teacher_load)).toBe(true);
+    expect(res.body.diagnostics.unplaceable_courses[0].course_code).toBe('X');
+    // The fixture has a 'theory' course (derived_type) and a
+    // 'classroom' room (room.type). The diagnostics module now
+    // applies the same theory→classroom mapping the solver uses
+    // (via roomSelector.requiredRoomType), so total_rooms_of_type
+    // is 1, not 0. The capacity row math therefore reads:
+    //   1 room × 7 slots/day × 5 days = 35 max_weekly_capacity.
+    const theoryRow = res.body.diagnostics.capacity_by_type.find(
+      (r) => r.type === 'theory' && r.duration_minutes === 50
+    );
+    expect(theoryRow).toBeDefined();
+    expect(theoryRow.total_rooms_of_type).toBe(1);
+    expect(theoryRow.slots_per_room_per_day).toBe(7);
+    expect(theoryRow.working_days).toBe(5);
+    expect(theoryRow.total_sessions_demanded).toBe(6);
+    expect(theoryRow.max_weekly_capacity).toBe(35);
+    // explainFailure is now called with a 2nd-arg diagnostics block.
+    expect(aiMock.explainFailure).toHaveBeenCalled();
+    const lastCall = aiMock.explainFailure.mock.calls[aiMock.explainFailure.mock.calls.length - 1];
+    expect(lastCall[1]).toBeDefined();
+    expect(lastCall[1].diagnostics).toBeDefined();
+    expect(lastCall[1].diagnostics.capacity_by_type).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'theory', duration_minutes: 50 }),
+      ])
+    );
     // CRITICAL: no schedules writes on failure path.
     const sqls = poolMock._recorded.map((r) => r.sql);
     expect(sqls).not.toContain('DELETE FROM SCHEDULES');
     expect(sqls).not.toContain('INSERT INTO SCHEDULES');
+  });
+
+  test('splits unplaceable vs not_attempted when an early course fails', async () => {
+    // First course provably infeasible (6 sessions/week on 5 days,
+    // distinct-day rule). Second course is feasible on its own but
+    // must NOT appear in `unplaceable` — it should land in
+    // `not_attempted` because the solver never reached it.
+    loaderMock.loadBatchForSchedule.mockImplementationOnce(async () => ({
+      batch: { id: 1, status: 'completed' },
+      config: {
+        working_days: 'SUN,MON,TUE,WED,THU',
+        class_start: '09:00', class_end: '16:00',
+        break_start: '12:30', break_end: '13:30',
+        duration_minutes: 50,
+      },
+      courses: [
+        { course_code: 'EARLY', teacher_abbr: 'T1', year_sem: '1-2',
+          derived_type: 'theory', derived_duration_min: 50,
+          derived_classes_per_week: 6 }, // forces infeasibility
+        { course_code: 'NEVER', teacher_abbr: 'T2', year_sem: '1-2',
+          derived_type: 'theory', derived_duration_min: 50,
+          derived_classes_per_week: 2 }, // never tried
+      ],
+      rooms: [{ room_id: 'R1', type: 'classroom' }],
+      room_preference: [],
+      teacher_unavailability: [],
+    }));
+    const res = await request(app).post('/api/batches/1/generate');
+    expect(res.status).toBe(422);
+    expect(res.body.unplaceable).toEqual(['EARLY']);
+    // `not_attempted` is best-effort: the MRV order is deterministic
+    // for this single-room fixture (EARLY has tighter constraints,
+    // so it's attempted first), but if that ever changes the test
+    // just checks that NEVER is *not* in unplaceable.
+    expect(res.body.unplaceable).not.toContain('NEVER');
+    expect(Array.isArray(res.body.not_attempted)).toBe(true);
+    expect(res.body.not_attempted).toContain('NEVER');
+    // Diagnostics only lists unplaceable courses (not not_attempted
+    // ones) — keeps the AI prompt focused on root causes.
+    const codes = res.body.diagnostics.unplaceable_courses.map((c) => c.course_code);
+    expect(codes).toContain('EARLY');
+    expect(codes).not.toContain('NEVER');
   });
 
   test('attaches aiProvider friendly_hint when AI is enabled', async () => {
@@ -268,6 +346,12 @@ describe('POST /api/batches/:id/generate', () => {
     const sqls = poolMock._recorded.map((r) => r.sql);
     expect(sqls).not.toContain('DELETE FROM SCHEDULES');
     expect(sqls).not.toContain('INSERT INTO SCHEDULES');
+    // explainFailure must be called with the {diagnostics} 2nd arg so
+    // the AI can quote exact capacity numbers.
+    expect(aiMock.explainFailure).toHaveBeenCalled();
+    const lastCall = aiMock.explainFailure.mock.calls[aiMock.explainFailure.mock.calls.length - 1];
+    expect(lastCall[1]).toBeDefined();
+    expect(lastCall[1].diagnostics).toBeDefined();
   });
 
   test('uses provided seed for deterministic re-runs', async () => {

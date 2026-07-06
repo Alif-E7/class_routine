@@ -122,4 +122,65 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
+// DELETE /api/batches/:id
+//
+// Hard-delete a batch row. The schema declares ON DELETE CASCADE on
+// every child table (teachers, courses, rooms, credit_rules,
+// room_preference, teacher_unavailability, config, schedules), so a
+// single DELETE clears all derived rows and any generated schedule in
+// one shot. Designed to be safe to call from the History page.
+//
+// Response shapes:
+//   200 OK                   — { success: true, batch_id: <int>, deleted: { ... } }
+//   400 INVALID_BATCH_ID    — id is not a positive integer
+//   404 BATCH_NOT_FOUND    — no such batch (or already deleted)
+//   500 DB_ERROR           — unexpected pool failure
+router.delete('/:id', async (req, res, next) => {
+  const batchId = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(batchId) || batchId <= 0) {
+    return res.status(400).json({
+      success: false,
+      code: 'INVALID_BATCH_ID',
+      message: 'batch id must be a positive integer',
+    });
+  }
+  try {
+    const pool = getPool();
+    // Snapshot the counts BEFORE the delete so the response can report
+    // exactly what was removed (the cascade has already nulled them by
+    // the time we'd query again).
+    const [counts] = await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM teachers          WHERE upload_batch_id = ?) AS teachers,
+         (SELECT COUNT(*) FROM courses           WHERE upload_batch_id = ?) AS courses,
+         (SELECT COUNT(*) FROM rooms             WHERE upload_batch_id = ?) AS rooms,
+         (SELECT COUNT(*) FROM credit_rules      WHERE upload_batch_id = ?) AS credit_rules,
+         (SELECT COUNT(*) FROM room_preference   WHERE upload_batch_id = ?) AS room_preference,
+         (SELECT COUNT(*) FROM teacher_unavailability WHERE upload_batch_id = ?) AS teacher_unavailability,
+         (SELECT COUNT(*) FROM config            WHERE upload_batch_id = ?) AS config_rows,
+         (SELECT COUNT(*) FROM schedules         WHERE batch_id        = ?) AS schedule_rows
+       FROM dual`,
+      [batchId, batchId, batchId, batchId, batchId, batchId, batchId, batchId]
+    );
+    const [result] = await pool.query(
+      `DELETE FROM upload_batches WHERE id = ?`,
+      [batchId]
+    );
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        code: 'BATCH_NOT_FOUND',
+        message: `No upload batch with id ${batchId}`,
+      });
+    }
+    return res.json({
+      success: true,
+      batch_id: batchId,
+      deleted: counts[0] || {},
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

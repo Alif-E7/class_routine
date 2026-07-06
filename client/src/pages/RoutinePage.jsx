@@ -18,7 +18,7 @@ import {
   Send,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { batchesApi, routineApi, exportApi, editApi } from '../api/client';
+import { batchesApi, routineApi, exportApi, editApi, explainApi } from '../api/client';
 import RoutineGrid from '../components/RoutineGrid';
 
 /**
@@ -350,6 +350,16 @@ const RoutinePage = () => {
         </div>
       )}
 
+      {/* Validation errors + warnings from upload step (if any).
+          Placed ABOVE the Ask-AI panel so the user reads the diagnosis
+          first, then can keep the conversation grouped right below. */}
+      {batch?.error_log && (
+        <ValidationErrorPanel
+          errorLog={batch.error_log}
+          batchId={batchId}
+        />
+      )}
+
       {/* Ask AI — Step 8 advisory edit drafts (does not mutate the schedule) */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
         <button
@@ -444,11 +454,6 @@ const RoutinePage = () => {
           </div>
         )}
       </div>
-
-      {/* Validation errors from upload step (if any) */}
-      {batch?.error_log && (
-        <ValidationErrorPanel errorLog={batch.error_log} />
-      )}
 
       {/* Routine grid */}
       <RoutineGrid assignments={assignments} header={header} teachers={teachers} />
@@ -579,38 +584,184 @@ function CountChip({ label, value, highlight }) {
   );
 }
 
-function ValidationErrorPanel({ errorLog }) {
-  // errorLog shape (from validators.js): { errors: [{rule, sheet, row, column, message}], warnings: [...] }
+/**
+ * ValidationErrorPanel — renders the {errors, warnings} block stored in
+ * upload_batches.error_log by validators.js.
+ *
+ * Each row has a "How do I fix this?" button that calls
+ * `explainApi.explainValidatorError` and inlines a short AI suggestion
+ * right under the row (no separate modal). The button is per-row so
+ * different issues can be addressed independently.
+ *
+ *   shape of errorLog = {
+ *     errors:   [{ rule, sheet, row, column, message, value? }],
+ *     warnings: [{ rule, sheet, row, column, message, value? }]
+ *   }
+ */
+function ValidationErrorPanel({ errorLog, batchId }) {
   const errors = errorLog?.errors || [];
   const warnings = errorLog?.warnings || [];
   if (errors.length === 0 && warnings.length === 0) return null;
+
   return (
-    <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm">
-      <div className="flex items-center gap-2 font-semibold text-red-800 mb-2">
-        <AlertCircle className="w-5 h-5" />
-        Validation found {errors.length} error{errors.length === 1 ? '' : 's'}
-        {warnings.length > 0 && ` and ${warnings.length} warning${warnings.length === 1 ? '' : 's'}`}.
-      </div>
+    <div className="space-y-4">
       {errors.length > 0 && (
-        <ul className="list-disc list-inside text-red-700 space-y-1">
-          {errors.slice(0, 8).map((e, i) => (
-            <li key={i}>
-              <span className="font-mono text-xs bg-red-100 px-1.5 py-0.5 rounded mr-2">
-                {e.rule}
-              </span>
-              {e.sheet ? <span className="text-xs text-red-600">{e.sheet}</span> : null}
-              {e.row ? <span className="text-xs text-red-500"> row {e.row}</span> : null}
-              {e.column ? <span className="text-xs text-red-500"> · {e.column}</span> : null}
-              {' — '}
-              {e.message}
-            </li>
-          ))}
-          {errors.length > 8 && (
-            <li className="text-red-600 italic">…and {errors.length - 8} more.</li>
-          )}
-        </ul>
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm">
+          <div className="flex items-center gap-2 font-semibold text-red-800 mb-3">
+            <AlertCircle className="w-5 h-5" />
+            {errors.length} validation error{errors.length === 1 ? '' : 's'} prevented
+            the workbook from being used as-is
+          </div>
+          <ul className="space-y-2">
+            {errors.map((e, i) => (
+              <ValidationRow
+                key={`err-${i}`}
+                issue={e}
+                severity="error"
+                batchId={batchId}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {warnings.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm">
+          <div className="flex items-center gap-2 font-semibold text-amber-800 mb-3">
+            <Sparkles className="w-5 h-5" />
+            {warnings.length} warning{warnings.length === 1 ? '' : 's'} — your
+            workbook was imported, but please review
+          </div>
+          <ul className="space-y-2">
+            {warnings.map((w, i) => (
+              <ValidationRow
+                key={`warn-${i}`}
+                issue={w}
+                severity="warning"
+                batchId={batchId}
+              />
+            ))}
+          </ul>
+        </div>
       )}
     </div>
+  );
+}
+
+function ValidationRow({ issue, severity, batchId }) {
+  // Per-row AI explanation state. We keep the explanation attached to
+  // the row key so re-renders don't lose what we've already fetched.
+  const [explanation, setExplanation] = useState(null);
+  const [explaining, setExplaining] = useState(false);
+  const [explainError, setExplainError] = useState(null);
+  const [expanded, setExpanded] = useState(false);
+
+  // Validators emit `rule`; the API accepts either `rule` or `code`.
+  const ruleCode = issue.code || issue.rule || '—';
+  const isError = severity === 'error';
+
+  const askAi = async () => {
+    if (explanation) {
+      setExpanded((v) => !v);
+      return;
+    }
+    setExplaining(true);
+    setExplainError(null);
+    setExpanded(true);
+    try {
+      const { explanation: text } = await explainApi.explainValidatorError(
+        batchId,
+        {
+          rule: ruleCode,
+          severity,
+          message: issue.message,
+          sheet: issue.sheet,
+          row: issue.row,
+          column: issue.column,
+          value: issue.value,
+        }
+      );
+      setExplanation(text);
+    } catch (err) {
+      const code = err.code;
+      let msg = err.message || 'Failed to get explanation.';
+      if (code === 'AI_UNAVAILABLE') {
+        if (err.reason === 'no_api_key') {
+          msg = 'AI assist is not configured on the server. Set GROQ_API_KEY in backend/.env to enable.';
+        } else if (err.reason === 'permission_denied') {
+          msg = "AI assist is blocked: Groq rejected the server's GROQ_API_KEY " +
+            '(HTTP 401/403/404). Verify the key is valid and that the configured ' +
+            'GROQ_MODEL is available for your account.';
+        } else if (err.reason === 'rate_limited') {
+          msg = 'AI service is rate-limited right now. Try again in a few seconds.';
+        } else {
+          msg = 'AI service is unavailable right now. Try again in a moment.';
+        }
+      } else if (code === 'AI_INVALID_RESPONSE') {
+        msg = 'The AI could not explain that issue. Try again.';
+      }
+      setExplainError(msg);
+    } finally {
+      setExplaining(false);
+    }
+  };
+
+  const location = [];
+  if (issue.sheet)   location.push(issue.sheet);
+  if (issue.row)     location.push(`row ${issue.row}`);
+  if (issue.column)  location.push(issue.column);
+
+  const ruleChipClass = isError
+    ? 'bg-red-200 text-red-900'
+    : 'bg-amber-200 text-amber-900';
+
+  return (
+    <li
+      className={`rounded-lg border px-3 py-2 ${
+        isError ? 'bg-white border-red-200' : 'bg-white border-amber-200'
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <span className={`font-mono text-[11px] px-1.5 py-0.5 rounded shrink-0 mt-0.5 ${ruleChipClass}`}>
+          {ruleCode}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="text-slate-800 leading-snug">{issue.message}</div>
+          {location.length > 0 && (
+            <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
+              {location.join(' · ')}
+            </div>
+          )}
+          {expanded && (
+            <div className="mt-2 rounded-md bg-sky-50 border border-sky-200 px-3 py-2 text-xs text-sky-900">
+              {explaining && (
+                <span className="inline-flex items-center gap-2 text-sky-700">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Asking the AI assistant…
+                </span>
+              )}
+              {!explaining && explainError && (
+                <span className="text-red-700">{explainError}</span>
+              )}
+              {!explaining && explanation && (
+                <p className="leading-relaxed whitespace-pre-wrap">
+                  {explanation}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={askAi}
+          disabled={explaining}
+          className="shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-2 py-1 rounded-md transition-colors disabled:opacity-50"
+          title={explanation ? 'Toggle AI explanation' : 'Ask the AI how to fix this'}
+        >
+          <Sparkles className="w-3 h-3" />
+          {explanation ? (expanded ? 'Hide fix' : 'Show fix') : 'How do I fix this?'}
+        </button>
+      </div>
+    </li>
   );
 }
 

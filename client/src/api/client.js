@@ -69,6 +69,61 @@ export const routineApi = {
 export const batchesApi = {
   list: () => api.get('/batches'),
   detail: (batchId) => api.get(`/batches/${batchId}`),
+  /**
+   * Hard-delete a batch. Cascades to teachers/courses/rooms/credit_rules/
+   * room_preference/teacher_unavailability/config/schedules.
+   *
+   *   200 → { success, batch_id, deleted: { teachers, courses, … } }
+   *   400 → INVALID_BATCH_ID
+   *   404 → BATCH_NOT_FOUND
+   *
+   * @param {number} batchId
+   * @returns {Promise<{batch_id:number, deleted:object}>}
+   */
+  delete: (batchId) =>
+    api.delete(`/batches/${batchId}`).then((res) => res.data),
+};
+
+/**
+ * explainApi — ask the AI assistant for a short plain-text explanation
+ * of how to fix a single validator error/warning. The backend
+ * (POST /api/batches/:id/explain-error) forwards the validator's own
+ * rule/sheet/row/column/message to Gemini and returns a 2-3 sentence
+ * remediation paragraph. This powers the per-row "How do I fix this?"
+ * button in the validation panel.
+ *
+ * Response shapes the UI cares about:
+ *   200 → { success, code: 'EXPLANATION_PROVIDED', explanation, … }
+ *   400 → INVALID_BATCH_ID | INVALID_ISSUE
+ *   404 → BATCH_NOT_FOUND
+ *   502 → AI_INVALID_RESPONSE   (AI ran but produced no usable text)
+ *   503 → AI_UNAVAILABLE        (no GEMINI_API_KEY on server, or transport error)
+ *
+ * The axios response interceptor normalizes err.code / err.message /
+ * err.reason so the page can route on those without re-parsing.
+ */
+export const explainApi = {
+  /**
+   * @param {number} batchId
+   * @param {{rule?:string, code?:string, severity:'error'|'warning',
+   *          message:string, sheet?:string, row?:number|string,
+   *          column?:string, value?:any}} issue
+   * @returns {Promise<{explanation:string, rule, severity, sheet, row, column, batch_id, raw}>}
+   */
+  explainValidatorError(batchId, issue) {
+    return api
+      .post(`/batches/${batchId}/explain-error`, { issue })
+      .then((res) => ({
+        explanation: res.data.explanation,
+        rule: res.data.rule,
+        severity: res.data.severity,
+        sheet: res.data.sheet,
+        row: res.data.row,
+        column: res.data.column,
+        batch_id: res.data.batch_id,
+        raw: res.data,
+      }));
+  },
 };
 
 /**

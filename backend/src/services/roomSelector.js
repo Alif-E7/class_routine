@@ -26,6 +26,16 @@ const typeMatches = {
 };
 
 /**
+ * Single source of truth for the derived_type -> room.type mapping.
+ * Exported because diagnostics.js needs the same vocabulary mapping
+ * when computing capacity numbers — duplicating the logic there
+ * would drift from what the solver actually filters on.
+ */
+function requiredRoomType(derivedType) {
+  return typeMatches[derivedType] || null;
+}
+
+/**
  * Build a bucket of weights keyed by year_group from the
  * `room_preference` rows. Rooms not listed get weight 0 (still eligible
  * only as a uniform fallback).
@@ -89,7 +99,7 @@ function pickRoom({ course, eligibleRooms, weightTable, rng = Math.random }) {
  * course. Used by the scheduler before each pick attempt.
  */
 function filterByType(rooms, course) {
-  const need = typeMatches[course.derived_type];
+  const need = requiredRoomType(course.derived_type);
   if (!need) {
     throw new Error(`Unknown derived_type on course ${course.course_code}: ${course.derived_type}`);
   }
@@ -100,5 +110,6 @@ module.exports = {
   buildWeightTable,
   pickRoom,
   filterByType,
+  requiredRoomType,
   typeMatches,
 };

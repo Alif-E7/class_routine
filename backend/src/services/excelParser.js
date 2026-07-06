@@ -135,12 +135,24 @@ function findHeaderRow(rows, sheetName) {
   return -1;
 }
 
+function isBlankRow(row) {
+  if (!row) return true;
+  for (const c of row) {
+    if (c != null && String(c).trim() !== '') return false;
+  }
+  return true;
+}
+
 function rowsToObjects(rows, headerIndex) {
   const header = (rows[headerIndex] || []).map(c => (c == null ? '' : String(c).trim()));
   const out = [];
+  // Walk rows below the header. The FIRST fully-blank row marks the
+  // end of the data block; anything after it (e.g. user notes like
+  // "Note: enter periods in HH:MM 24-hour format") is ignored instead
+  // of being mistaken for a real data row.
   for (let i = headerIndex + 1; i < rows.length; i++) {
     const row = rows[i] || [];
-    if (row.every(c => c == null || String(c).trim() === '')) continue; // skip blanks
+    if (isBlankRow(row)) break;
     const obj = {};
     for (let c = 0; c < header.length; c++) {
       const canon = normalizeKey(header[c]);
@@ -152,9 +164,9 @@ function rowsToObjects(rows, headerIndex) {
 }
 
 function parseConfigRows(rows) {
-  // Config can be a 2-column key/value table that has a header row.
-  // We accept both layouts: a normal 2-col table (key,value) and a
-  // sheet that's just key-value pairs starting at row 0.
+  // Config is a 2-column key/value table. Walk until the first
+  // fully-blank row, then stop — notes after a blank line are not
+  // valid config keys.
   const out = {};
   for (const r of rows) {
     if (!r.key) continue;

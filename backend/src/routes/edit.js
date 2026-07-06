@@ -49,7 +49,7 @@ const express = require('express');
 const router = express.Router({ mergeParams: true });
 
 const { getPool } = require('../db/pool');
-const { parseEditRequest, isEnabled } = require('../services/aiProvider');
+const { parseEditRequest, explainValidator, isEnabled } = require('../services/aiProvider');
 
 const MIN_PROMPT_LEN = 8;
 const MAX_PROMPT_LEN = 500;
@@ -127,7 +127,7 @@ router.post('/:id/edit', async (req, res, next) => {
         code: 'AI_UNAVAILABLE',
         message:
           'AI assist is not configured on this server (missing ' +
-          'GEMINI_API_KEY). Set it in the backend .env and restart.',
+          'GROQ_API_KEY). Set it in the backend .env and restart.',
         reason: 'no_api_key',
       });
     }
@@ -196,6 +196,171 @@ router.post('/:id/edit', async (req, res, next) => {
       batch_id: batchId,
       prompt,
       proposal: aiResult.proposal,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/batches/:id/explain-error
+//
+// Body:
+//   {
+//     issue: {
+//       code|rule:    string,                 // V1..V8 / EMPTY / etc.
+//       severity:    'error' | 'warning',     // required
+//       message:     string,                  // required — the validator's own message
+//       sheet?:      string,
+//       row?:        number|string|null,
+//       column?:     string,
+//       value?:      any
+//     }
+//   }
+//
+// Response (200):
+//   {
+//     success: true,
+//     code: 'EXPLANATION_PROVIDED',
+//     batch_id, severity, rule, sheet, row, column,
+//     explanation: <short plain-text paragraph>,
+//     board_suggestion: <short Excel/Sheets-level recipe, may be null>
+//   }
+//
+// Errors:
+//   400 INVALID_BATCH_ID  — id not a positive int
+//   400 INVALID_ISSUE     — missing/empty message, or severity not in {error,warning}
+//   404 BATCH_NOT_FOUND   — id doesn't exist
+//   503 AI_UNAVAILABLE    — no API key or transport failure
+//   502 AI_INVALID_RESPONSE — AI ran but produced no usable text
+router.post('/:id/explain-error', async (req, res, next) => {
+  const batchId = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(batchId) || batchId <= 0) {
+    return res.status(400).json({
+      success: false,
+      code: 'INVALID_BATCH_ID',
+      message: 'batch id must be a positive integer',
+    });
+  }
+
+  const body = req.body || {};
+  const issue = body.issue && typeof body.issue === 'object' ? body.issue : null;
+  if (!issue || typeof issue.message !== 'string' || !issue.message.trim()) {
+    return res.status(400).json({
+      success: false,
+      code: 'INVALID_ISSUE',
+      message: 'issue.message is required and must be a non-empty string',
+    });
+  }
+  const severity = String(issue.severity || '').toLowerCase();
+  if (severity !== 'error' && severity !== 'warning') {
+    return res.status(400).json({
+      success: false,
+      code: 'INVALID_ISSUE',
+      message: "issue.severity must be 'error' or 'warning'",
+    });
+  }
+
+  try {
+    // Confirm the batch exists. We don't need its data, but a 404
+    // here is friendlier than a 503 if the admin typed the wrong id.
+    const [batchRows] = await getPool().query(
+      `SELECT id FROM upload_batches WHERE id = ?`,
+      [batchId]
+    );
+    if (batchRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        code: 'BATCH_NOT_FOUND',
+        message: `No upload batch with id ${batchId}`,
+      });
+    }
+
+    if (!isEnabled()) {
+      return res.status(503).json({
+        success: false,
+        code: 'AI_UNAVAILABLE',
+        message:
+          'AI assist is not configured on this server (missing GROQ_API_KEY). ' +
+          'Set it in the backend .env and restart.',
+        reason: 'no_api_key',
+      });
+    }
+
+    let aiResult;
+    try {
+      aiResult = await explainValidator({ ...issue, severity });
+    } catch (_aiErr) {
+      return res.status(502).json({
+        success: false,
+        code: 'AI_INVALID_RESPONSE',
+        message: 'The AI provider raised an unexpected error. Try again.',
+      });
+    }
+
+    if (!aiResult.available) {
+      return res.status(503).json({
+        success: false,
+        code: 'AI_UNAVAILABLE',
+        message: 'AI provider is not reachable right now.',
+        reason: aiResult.reason || 'unknown',
+      });
+    }
+    if (!aiResult.explanation) {
+      const reason = aiResult.reason || 'invalid_json';
+
+      // Permission / config errors — the key is valid format but is
+      // being rejected by Groq. Not transient; the admin needs to
+      // fix the key (or pick a model the account has access to).
+      // Surface as 503 with a clear message so the UI can guide
+      // the admin instead of telling them to "try again".
+      const permissionErrors = ['permission_denied', 'http_401', 'http_403', 'http_404'];
+      if (permissionErrors.includes(reason)) {
+        return res.status(503).json({
+          success: false,
+          code: 'AI_UNAVAILABLE',
+          message:
+            'The server\'s GROQ_API_KEY was rejected by Groq ' +
+            '(HTTP 401/403/404). Verify the key is valid and that the ' +
+            'configured GROQ_MODEL is available for your account.',
+          reason: 'permission_denied',
+          upstream_reason: reason,
+        });
+      }
+
+      // Transient transport errors — caller can retry.
+      const transient = ['timeout', 'call_failed', 'http_error',
+        'http_500', 'http_502', 'http_503', 'http_504', 'empty_response'];
+      if (transient.includes(reason)) {
+        return res.status(503).json({
+          success: false,
+          code: 'AI_UNAVAILABLE',
+          message: 'AI provider is not reachable right now. Try again.',
+          reason,
+        });
+      }
+      return res.status(502).json({
+        success: false,
+        code: 'AI_INVALID_RESPONSE',
+        message: 'The AI returned a response we could not use.',
+        reason,
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      code: 'EXPLANATION_PROVIDED',
+      batch_id: batchId,
+      severity,
+      rule: issue.code || issue.rule || null,
+      sheet: issue.sheet || null,
+      row: issue.row != null ? issue.row : null,
+      column: issue.column || null,
+      explanation: aiResult.explanation,
+      // Copy-pasteable Excel/Sheets recipe ("type 3 in Courses!D12"
+      // etc). May be null if the model ran but didn't include the
+      // trailing Board suggestion line — admins still get the
+      // prose explanation in that case.
+      board_suggestion: aiResult.board_suggestion || null,
     });
   } catch (err) {
     next(err);
