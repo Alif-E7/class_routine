@@ -1,0 +1,4 @@
+loading batch 11...
+LOADED 37 courses, 7 rooms
+config: {"working_days":"SUN,MON,TUE,WED,THU","class_start":"09:00","class_end":"15:50","break_start":"13:00","break_end":"14:00","duration_minutes":240}
+STARTING solve with seed=42, budget=2000000

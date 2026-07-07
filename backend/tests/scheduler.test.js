@@ -5,6 +5,8 @@ const {
   SchedulingError,
   buildAvailableWindows,
   IntervalMap,
+  formatTime,
+  normalizeSlotValue,
 } = require('../src/services/scheduler');
 const { pickRoom, buildWeightTable, filterByType } = require('../src/services/roomSelector');
 
@@ -251,6 +253,101 @@ describe('scheduler — undo / backtrack correctness', () => {
     });
     expect(out.length).toBe(6);
   });
+
+  test('greedy first-pick dead-end is recovered by real per-candidate backtracking', () => {
+    // Build-prompt §5, real-CSP variant: a course (C1) has 2
+    // candidate rooms and the solver's first-pick leaves a
+    // downstream course (C2) with no valid placement. A naive
+    // greedy solver would throw here. A correct CSP backtracker
+    // must undo C1's session-0 commit and try an alternative
+    // day, freeing C2's only free slot for use.
+    //
+    // Fixture construction:
+    //   * 5 working days (SUN..THU), 1 slot/day at 09:00..09:50
+    //     (class_end truncated so only one 50-min slot exists).
+    //   * 2 classrooms R101, R102 — both eligible for both
+    //     courses (so C1 really does have 2 candidate rooms).
+    //   * C1 = theory / year 1-1 / T1, 4 sessions/week,
+    //     NO teacher unavailability — T1 is free all 5 days.
+    //   * C2 = theory / year 1-1 / T2 (different teacher),
+    //     1 session/week, T2 unavailable on MON..THU so only
+    //     SUN is free for T2.
+    //   * MRV sort: same roomCount for both; C1 sorts first
+    //     because classes_per_week = 4 > 1.
+    //   * enumerateCandidates ranks days by ascending slot
+    //     count; with one slot per day the rank is a tie, so
+    //     the tie-break is workingDays input order → SUN
+    //     comes first. C1's session-0 first-pick is therefore
+    //     (R101, SUN, 540..590).
+    //   * After C1 commits all 4 sessions on SUN+MON+TUE+WED
+    //     (greedy), C2's only option — SUN — has an overlapping
+    //     year-sem-1-1 busy interval → C2 fails.
+    //   * The backtracker must undo C1's session 0 (the SUN
+    //     commit) and try the next candidate (MON). Then
+    //     sessions 1..3 cascade onto TUE/WED/THU, freeing SUN
+    //     for C2.
+    //
+    // The assertion `c2.day === 'SUN' && !c1Days.has('SUN')`
+    // would prove the backtrack moved C1 off SUN, but the
+    // current scheduler also accepts C1 keeping SUN and C2
+    // taking a non-overlapping slot on SUN if one were
+    // available — with 1 slot/day there isn't, so C2 must
+    // come on a non-SUN day that C1 didn't take. We assert
+    // exactly that: C2 lands on SUN, and C1's 4 days are
+    // {MON, TUE, WED, THU}.
+    const singleSlotConfig = {
+      working_days: 'SUN,MON,TUE,WED,THU',
+      class_start: '09:00',
+      class_end: '10:30',
+      break_start: '10:00',
+      break_end: '10:10',
+      duration_minutes: 50,
+    };
+    const courses = [
+      {
+        course_code: 'C1', credit: 3.0, year_sem: '1-1', teacher_abbr: 'T1',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 4,
+      },
+      {
+        course_code: 'C2', credit: 3.0, year_sem: '1-1', teacher_abbr: 'T2',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 1,
+      },
+    ];
+    const rooms = [
+      { room_id: 'R101', type: 'classroom' },
+      { room_id: 'R102', type: 'classroom' },
+    ];
+    const teacher_unavailability = [
+      { teacher_abbr: 'T2', day: 'MON', start_time: '09:00', end_time: '09:50' },
+      { teacher_abbr: 'T2', day: 'TUE', start_time: '09:00', end_time: '09:50' },
+      { teacher_abbr: 'T2', day: 'WED', start_time: '09:00', end_time: '09:50' },
+      { teacher_abbr: 'T2', day: 'THU', start_time: '09:00', end_time: '09:50' },
+    ];
+    const out = solve({
+      courses,
+      rooms,
+      room_preference: [],
+      teacher_unavailability,
+      config: singleSlotConfig,
+    });
+    // Backtrack-success sanity: total placements = 5 (4 for C1 + 1 for C2).
+    expect(out.length).toBe(5);
+    // C2 has only SUN free for T2; the backtrack must have freed
+    // SUN for C2 (it was C1's greedy first-pick day).
+    const c2 = out.filter((a) => a.course_code === 'C2');
+    expect(c2.length).toBe(1);
+    expect(c2[0].day).toBe('SUN');
+    // C1 must occupy exactly the four non-SUN days (because SUN
+    // was sacrificed to free C2's slot).
+    const c1Days = new Set(out.filter((a) => a.course_code === 'C1').map((a) => a.day));
+    expect(c1Days.size).toBe(4);
+    expect([...c1Days].sort()).toEqual(['MON', 'THU', 'TUE', 'WED']);
+    // No room conflict and no teacher conflict across placements.
+    const roomKeys = out.map((a) => `${a.room_id}|${a.day}`);
+    expect(new Set(roomKeys).size).toBe(out.length);
+    const teacherKeys = out.map((a) => `${a.teacher_abbr}|${a.day}`);
+    expect(new Set(teacherKeys).size).toBe(out.length);
+  });
 });
 
 describe('scheduler — zero collisions across 20 randomized instances', () => {
@@ -344,6 +441,67 @@ describe('scheduler — zero collisions across 20 randomized instances', () => {
       }
     }, 60_000);
   }
+});
+
+describe('scheduler — formatTime / normalizeSlotValue', () => {
+  // formatTime is the SQL-boundary helper that converts integer
+  // minutes to zero-padded 'HH:MM' strings. The `schedules` table
+  // stores slot_start / slot_end as MySQL TIME which rejects raw
+  // integer minutes >= 838 with "Incorrect time value: '890'". The
+  // bug was that the POST /generate route passed raw integer
+  // minutes straight into the INSERT.
+
+  test('formatTime zero-pads single-digit hours and minutes', () => {
+    expect(formatTime(0)).toBe('00:00');
+    expect(formatTime(540)).toBe('09:00');   // 9:00 am
+    expect(formatTime(590)).toBe('09:50');   // 9:50 am (the case in the bug report)
+    expect(formatTime(890)).toBe('14:50');   // raw 890 → '14:50' (the case the DB refused)
+    expect(formatTime(720)).toBe('12:00');   // noon
+    expect(formatTime(13 * 60 + 50)).toBe('13:50');
+    expect(formatTime(23 * 60 + 59)).toBe('23:59');
+  });
+
+  test('formatTime clamps out-of-range values defensively', () => {
+    // Negative minutes are clamped to 00:00 — a missing-slot error
+    // must NOT abort generation. >24h is clamped to 23:59.
+    expect(formatTime(-100)).toBe('00:00');
+    expect(formatTime(24 * 60)).toBe('23:59');
+    expect(formatTime(99_999)).toBe('23:59');
+    // Non-finite values fall back to '00:00' (same reasoning).
+    expect(formatTime(null)).toBe('00:00');
+    expect(formatTime(NaN)).toBe('00:00');
+    expect(formatTime('garbage')).toBe('00:00');
+  });
+
+  test('formatTime / parseTime are inverses across the full day', () => {
+    for (let m = 0; m < 24 * 60; m += 7) {
+      const round = formatTime(m);
+      // Round-trip: format → parse must equal the original minute.
+      expect(round).toMatch(/^\d{2}:\d{2}$/);
+      const [h, mm] = round.split(':').map(Number);
+      expect(h * 60 + mm).toBe(m);
+    }
+  });
+
+  test('normalizeSlotValue handles DB return shapes', () => {
+    // mysql2 with dateStrings:true returns TIME columns as strings.
+    // Newer MariaDB returns 'HH:MM:SS', older returns 'HH:MM'.
+    expect(normalizeSlotValue('09:00:00')).toBe(540);
+    expect(normalizeSlotValue('09:50:00')).toBe(590);
+    expect(normalizeSlotValue('14:50:00')).toBe(890);
+    expect(normalizeSlotValue('09:00')).toBe(540);
+    expect(normalizeSlotValue('10:30')).toBe(630);
+    // Pass-through for already-numeric values (the POST response path).
+    expect(normalizeSlotValue(540)).toBe(540);
+    expect(normalizeSlotValue(0)).toBe(0);
+    // Pass-through for null/undefined so DB rows with missing slot
+    // values don't crash the route (caller decides what to do).
+    expect(normalizeSlotValue(null)).toBeNull();
+    expect(normalizeSlotValue(undefined)).toBeUndefined();
+    // Unparseable strings → null so the caller can detect & skip.
+    expect(normalizeSlotValue('garbage')).toBeNull();
+    expect(normalizeSlotValue('')).toBeNull();
+  });
 });
 
 describe('roomSelector — pickRoom basics', () => {

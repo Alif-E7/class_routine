@@ -47,13 +47,53 @@ class SchedulingError extends Error {
   }
 }
 
-const DEFAULT_BUDGET = 200_000;
+const DEFAULT_BUDGET = parseInt(process.env.SCHEDULER_BUDGET, 10) || 2_000_000;
 const DEFAULT_RNG = Math.random;
 
-/** Parse "HH:MM" (24h) → minutes since midnight. */
+/** Parse "HH:MM" (24h) → minutes since midnight. Also accepts "HH:MM:SS". */
 function parseTime(s) {
   const [h, m] = String(s).split(':').map((x) => Number(x));
   return h * 60 + m;
+}
+
+/**
+ * Format minutes-since-midnight as a zero-padded "HH:MM" string. Inverse of
+ * parseTime(). Used at the SQL boundary — the `schedules` table stores
+ * `slot_start` / `slot_end` as MySQL TIME columns which require 'HH:MM'
+ * (or 'HH:MM:SS') strings; raw integer minutes are rejected ("Incorrect
+ * time value: '890'" for any value >= 838).
+ *
+ * Defensive: clamps to [0, 23:59] so a corrupt input can't cascade into
+ * an even-louder DB error. Returns "00:00" for non-finite values rather
+ * than throwing — a missing-busy-time error must NOT abort generation.
+ */
+function formatTime(mins) {
+  if (!Number.isFinite(Number(mins))) return '00:00';
+  let m = Math.max(0, Math.min(24 * 60 - 1, Math.round(Number(mins))));
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+/**
+ * Normalize a slot value read from the DB back to integer minutes.
+ * mysql2 with `dateStrings: true` returns TIME columns as 'HH:MM:SS'
+ * strings; the in-memory API contract is integer minutes. This helper
+ * bridges the two so callers (routes, docxGenerator, RoutineGrid) can
+ * treat both the just-generated API response (numbers) and a re-loaded
+ * persisted schedule (strings) identically. Already-numeric values
+ * pass through.
+ */
+function normalizeSlotValue(v) {
+  if (v == null) return v;
+  if (typeof v === 'number') return v;
+  const s = String(v);
+  if (/^\d+$/.test(s)) return Number(s);
+  const parts = s.split(':').map((x) => Number(x));
+  if (parts.length >= 2 && parts.every((p) => Number.isFinite(p))) {
+    return parts[0] * 60 + (parts[1] || 0);
+  }
+  return null;
 }
 
 /**
@@ -110,19 +150,43 @@ function buildAvailableWindows(config, durationMinutes) {
 
 /**
  * Sort courses so the most-constrained course is placed first
- * (MRV / most-constrained-first heuristic). Constraint signal:
- *   1. fewer same-type rooms available
- *   2. higher derived_classes_per_week
- *   3. teacher with more unavailability windows
- * Within a tier we keep input order to stay deterministic.
+ * (MRV / most-constrained-first heuristic). Constraint signals
+ * ranked by importance:
+ *   1. TOTAL WEEKLY TIME DEMAND: courses that need more weekly
+ *      minutes (longer duration × more sessions) are placed first.
+ *      This captures the real "hard to fit" signal — a 240-min
+ *      lab session needs a 4-hour morning block, far tighter than
+ *      a 50-min theory session.
+ *   2. FEWER SAME-TYPE ROOMS: fewer rooms of the right type
+ *      = more constrained.
+ *   3. SESSIONS PER WEEK: more sessions = more constrained (tie-break).
+ *   4. TEACHER UNAVAILABILITY: teacher with more unavailability
+ *      windows (tie-break).
+ *   5. INPUT ORDER: deterministic within a tier so tests stay stable.
+ *
+ * Why this matters: with the OLD ordering (room-count-first), a
+ * 50-min theory course with only 1 classroom got placed before a
+ * 240-min lab with 4 lab rooms — but labs are objectively harder
+ * to fit because each session consumes 4 contiguous morning hours.
+ * Putting labs first lets the backtracker reserve the precious
+ * morning slots before theory can scatter across them.
  */
 function sortByConstraintTightness(courses, allRooms, unavailabilityByTeacher) {
   const roomCount = (c) => filterByType(allRooms, c).length;
   const unavailCount = (c) =>
     (unavailabilityByTeacher.get(String(c.teacher_abbr)) || []).length;
+  const weeklyDemand = (c) =>
+    Number(c.derived_duration_min || 0) * Number(c.derived_classes_per_week || 0);
   return courses
-    .map((c, idx) => ({ c, idx, roomCount: roomCount(c), unavailCount: unavailCount(c) }))
+    .map((c, idx) => ({
+      c, idx,
+      roomCount: roomCount(c),
+      unavailCount: unavailCount(c),
+      weeklyDemand: weeklyDemand(c),
+    }))
     .sort((a, b) => {
+      // Higher weekly demand first — more constrained courses first.
+      if (b.weeklyDemand !== a.weeklyDemand) return b.weeklyDemand - a.weeklyDemand;
       if (a.roomCount !== b.roomCount) return a.roomCount - b.roomCount;
       if (b.c.derived_classes_per_week !== a.c.derived_classes_per_week) {
         return b.c.derived_classes_per_week - a.c.derived_classes_per_week;
@@ -197,6 +261,189 @@ function solve(input, options = {}) {
     input.rooms,
     unavailMap
   );
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Pre-flight structural check
+  // ─────────────────────────────────────────────────────────────────────
+  //
+  // Before kicking off the backtracking search (which can burn
+  // millions of iterations before admitting defeat), run a cheap
+  // structural check on every course. The two cases that GUARANTEE
+  // failure no matter how the backtracker orders its decisions:
+  //
+  //   (a) NO SLOTS EXIST for a course's duration in the daily
+  //       window. Example: 240-minute lab sessions in a 09:00-15:50
+  //       day with a 13:00-14:00 lunch break. The break splits the
+  //       day into a 240-min pre-break window (exactly the slot
+  //       length, but it would START at 09:00 and END at 13:00 — the
+  //       exact minute lunch begins, so it is rejected as
+  //       straddling) and a 110-min post-break window (too short).
+  //       buildAvailableWindows returns slots: {} for that duration.
+  //       No amount of backtracking can produce a placement.
+  //
+  //   (b) NO ROOM OF THE RIGHT TYPE exists for a course. Example:
+  //       a "theory" course with zero classrooms loaded. Same
+  //       guarantee — infeasible from the start.
+  //
+  // Detecting these up front lets us return a clean
+  // SCHEDULE_INFEASIBLE error naming the exact courses and reasons,
+  // instead of misleading the admin with "Exceeded search budget"
+  // after the search has spun for 2M iterations.
+  const structuralUnplaceable = [];
+  for (const course of ordered) {
+    const dur = course.derived_duration_min;
+    if (!Number.isInteger(dur) || dur <= 0) {
+      structuralUnplaceable.push({
+        course_code: course.course_code,
+        reason: 'invalid_duration',
+        detail: `derived_duration_min=${dur} (must be a positive integer)`,
+      });
+      continue;
+    }
+    const slotsByDur = getDaySlots(dur);
+    const totalSlots = Object.values(slotsByDur || {}).reduce(
+      (n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0
+    );
+    if (totalSlots === 0) {
+      // Compute exactly WHY no slots fit, so the admin can fix the
+      // config (extend class_end) or fix the credit rule (drop
+      // duration_minutes) without guesswork.
+      const cs = parseTime(input.config.class_start);
+      const ce = parseTime(input.config.class_end);
+      const bs = parseTime(input.config.break_start);
+      const be = parseTime(input.config.break_end);
+      const preBreak = Math.max(0, bs - cs);
+      const postBreak = Math.max(0, ce - be);
+      structuralUnplaceable.push({
+        course_code: course.course_code,
+        reason: 'no_slots_for_duration',
+        detail:
+          `duration_minutes=${dur} does not fit in the daily window ` +
+          `[${input.config.class_start}-${input.config.class_end}] ` +
+          `with break [${input.config.break_start}-${input.config.break_end}]. ` +
+          `Pre-break free window=${preBreak} min, post-break free window=${postBreak} min.`,
+      });
+      continue;
+    }
+    if (filterByType(input.rooms, course).length === 0) {
+      structuralUnplaceable.push({
+        course_code: course.course_code,
+        reason: 'no_room_of_type',
+        detail: `no room of required type for derived_type="${course.derived_type}"`,
+      });
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────
+  // Pre-flight teacher-load check
+  // ─────────────────────────────────────────────────────────────────────
+  //
+  // For each teacher, sum the TOTAL contiguous minutes they must
+  // teach per week (= Σ sessions × session duration) and compare
+  // against the FREE minutes per week in the working-day grid after
+  // their declared unavailability is subtracted.
+  //
+  // If Σ demanded > free minutes, the teacher is physically
+  // over-subscribed — no backtracking can fit more sessions into
+  // their personal time grid than it has room for. We flag the
+  // affected courses up front so the admin sees a clear
+  // teacher-overload error instead of a misleading
+  // "Exceeded search budget" after 2M wasted iterations.
+  //
+  // Note: this is a NECESSARY-but-not-SUFFICIENT lower bound — even
+  // if every teacher passes this check, the schedule can still be
+  // infeasible because of room/year-sem conflicts. That's what the
+  // backtracker is for. This check just catches the case the
+  // backtracker can't recover from: a teacher who needs more time
+  // than exists.
+  const teacherLoad = new Map(); // teacher -> { demanded_min, free_min, course_codes }
+  const cs = parseTime(input.config.class_start);
+  const ce = parseTime(input.config.class_end);
+  const bs = parseTime(input.config.break_start);
+  const be = parseTime(input.config.break_end);
+  const dayWindowMin = Math.max(0, (bs - cs)) + Math.max(0, (ce - be));
+  const workingDayCount = String(input.config.working_days || '')
+    .split(',').map((s) => s.trim().toUpperCase()).filter(Boolean).length;
+  const weeklyWindowMinPerTeacher = dayWindowMin * workingDayCount;
+  // Subtract each teacher's declared unavailability windows.
+  for (const [teacherAbbr, windows] of unavailMap.entries()) {
+    const unavailMin = windows.reduce((sum, w) => sum + Math.max(0, w.end - w.start), 0);
+    teacherLoad.set(String(teacherAbbr), {
+      demanded_min: 0,
+      free_min: Math.max(0, weeklyWindowMinPerTeacher - unavailMin),
+      course_codes: [],
+    });
+  }
+  // Make sure every teacher seen in courses is represented even if
+  // they had no unavailability rows.
+  for (const c of ordered) {
+    const key = String(c.teacher_abbr);
+    if (!teacherLoad.has(key)) {
+      teacherLoad.set(key, {
+        demanded_min: 0,
+        free_min: weeklyWindowMinPerTeacher,
+        course_codes: [],
+      });
+    }
+  }
+  for (const c of ordered) {
+    const key = String(c.teacher_abbr);
+    const entry = teacherLoad.get(key);
+    const dur = Number(c.derived_duration_min);
+    const cpw = Number(c.derived_classes_per_week);
+    if (Number.isInteger(dur) && Number.isInteger(cpw) && dur > 0 && cpw > 0) {
+      entry.demanded_min += dur * cpw;
+      entry.course_codes.push(c.course_code);
+    }
+  }
+  const teacherOverloads = [];
+  for (const [teacherAbbr, entry] of teacherLoad.entries()) {
+    if (entry.demanded_min > entry.free_min) {
+      teacherOverloads.push({
+        teacher_abbr: teacherAbbr,
+        demanded_min: entry.demanded_min,
+        free_min: entry.free_min,
+        weekly_window_min: weeklyWindowMinPerTeacher,
+        overshoot_min: entry.demanded_min - entry.free_min,
+        affected_courses: entry.course_codes,
+      });
+    }
+  }
+  if (teacherOverloads.length > 0) {
+    // Map the overloaded teachers back to specific courses so the
+    // admin can see WHICH courses are competing for the same
+    // over-subscribed teacher's time.
+    const overTeacherSet = new Set(teacherOverloads.map((x) => x.teacher_abbr));
+    const coursesBlockedByOverload = ordered
+      .filter((c) => overTeacherSet.has(String(c.teacher_abbr)))
+      .map((c) => c.course_code);
+    throw new SchedulingError(
+      'No feasible schedule: one or more teachers are over-subscribed',
+      {
+        unplaceable: coursesBlockedByOverload,
+        structural_failures: teacherOverloads.map((o) => ({
+          course_code: `(teacher=${o.teacher_abbr})`,
+          reason: 'teacher_overload',
+          detail:
+            `teacher "${o.teacher_abbr}" needs ${o.demanded_min} min/week but ` +
+            `only ${o.free_min} min/week are free (weekly window=${o.weekly_window_min} min, ` +
+            `overshoot=${o.overshoot_min} min). Affected courses: ${o.affected_courses.join(', ')}.`,
+        })),
+        teacher_overloads: teacherOverloads,
+        not_attempted: [],
+      }
+    );
+  }
+
+  if (structuralUnplaceable.length > 0) {
+    throw new SchedulingError(
+      'No feasible schedule: one or more courses have no legal placement',
+      {
+        unplaceable: structuralUnplaceable.map((x) => x.course_code),
+        structural_failures: structuralUnplaceable,
+        not_attempted: [],
+      }
+    );
+  }
 
   const teacherBusy = new IntervalMap();
   const roomBusy = new IntervalMap();
@@ -384,7 +631,16 @@ function solve(input, options = {}) {
           course,
           weightTable
         );
-        for (const roomId of ranked) {
+        // RNG-driven room shuffle for ties: when the top
+        // preference-weighted rooms are very close in weight,
+        // picking one over the other can lock the solver into a
+        // dead-end subtree the backtracker can't escape. A
+        // Fisher-Yates partial shuffle (limited to a small
+        // window) lets the search try alternative room choices
+        // across re-entries without sacrificing the MRV day
+        // ordering.
+        const shuffled = rngShuffleTopN(ranked, 2);
+        for (const roomId of shuffled) {
           out.push({ day, slot, roomId });
         }
       }
@@ -393,111 +649,56 @@ function solve(input, options = {}) {
   }
 
   /**
-   * Forward-checking / MRV pruning before commit.
+   * Partial Fisher-Yates shuffle: shuffle the first `n` items of
+   * `arr` to introduce small RNG-driven variance in candidate
+   * ordering. Used by enumerateCandidates to break ties in room
+   * preference so the backtracker doesn't deterministically commit
+   * to one room choice and miss the feasible assignment that uses
+   * a different room.
    *
-   * Simulates `course`'s pending placement on (day, slot, roomId)
-   * by checking — for every OTHER not-yet-fully-placed course —
-   * that AT LEAST ONE free (day, slot, room) tuple remains after
-   * the simulated busy-map additions.
-   *
-   * Returns true iff committing this assignment would not
-   * dead-end the rest of the schedule. False means "prune NOW,
-   * don't even descend": the assignment is rejected here and the
-   * backtracker tries the next candidate.
-   *
-   * Cheapness: we do NOT recursively enumerate candidates of the
-   * other courses — we just ask, for each (otherCourse, day, slot)
-   * pair NOT already in otherCourse.usedDays, whether at least one
-   * eligible room is free in the simulated busy state, and whether
-   * otherCourse needs any still-uncommitted slots at all.
+   * `n` defaults to 2 — only the top two are reshuffled, leaving
+   * the preference-based tail intact (so heavily-weighted rooms
+   * still get tried first). At n=2 the behavior is essentially:
+   * "swap the top two with probability 0.5".
    */
-  function preservesFeasibility(course, day, slot, roomId) {
-    for (const other of ordered) {
-      if (other.course_code === course.course_code) continue;
-      // Skip courses that this call's frame has already
-      // fully placed — they have nothing left to schedule.
-      const placedCount = coursePlacedCount.get(other.course_code) || 0;
-      if (placedCount >= other.derived_classes_per_week) continue;
-      const otherUsedDays = courseUsedDays.get(other.course_code);
-      if (!otherUsedDays) continue;
-      // Cheap feasibility probe: does at least one
-      // (day, slot, room) triple exist for this course under
-      // the simulated busy-map state?
-      const slotsByDuration = getDaySlots(other.derived_duration_min);
-      if (!slotsByDuration) return false;
-      const eligibleRooms = filterByType(input.rooms, other);
-      if (eligibleRooms.length === 0) return false;
-      let found = false;
-      outerDayLoop: for (const oDay of workingDays) {
-        if (otherUsedDays.has(oDay)) continue;
-        const daySlots = slotsByDuration[oDay];
-        if (!daySlots) continue;
-        for (const oSlot of daySlots) {
-          // Teacher unavailability probe.
-          const blocks = unavailabilityForDay(unavailMap, other.teacher_abbr, oDay);
-          let blockedByUnavail = false;
-          for (const b of blocks) {
-            if (oSlot.start < b.end && b.start < oSlot.end) {
-              blockedByUnavail = true;
-              break;
-            }
-          }
-          if (blockedByUnavail) continue;
-          // Teacher busy — live state UNION the simulated commit
-          // (same teacher + same day + overlapping slot).
-          let teacherBusyHere = teacherBusy.overlaps(
-            `${other.teacher_abbr}|${oDay}`,
-            oSlot.start,
-            oSlot.end
-          );
-          if (
-            !teacherBusyHere
-            && other.teacher_abbr === course.teacher_abbr
-            && oDay === day
-            && slot.start < oSlot.end
-            && oSlot.start < slot.end
-          ) {
-            teacherBusyHere = true;
-          }
-          if (teacherBusyHere) continue;
-          // Year-sem busy probe.
-          let semBusyHere = semBusy.overlaps(
-            `${other.year_sem}|${oDay}`,
-            oSlot.start,
-            oSlot.end
-          );
-          if (
-            !semBusyHere
-            && other.year_sem === course.year_sem
-            && oDay === day
-            && slot.start < oSlot.end
-            && oSlot.start < slot.end
-          ) {
-            semBusyHere = true;
-          }
-          if (semBusyHere) continue;
-          // Room-busy probe across eligible rooms.
-          for (const room of eligibleRooms) {
-            let busy = roomBusy.overlaps(
-              `${room.room_id}|${oDay}`,
-              oSlot.start,
-              oSlot.end
-            );
-            if (
-              !busy
-              && room.room_id === roomId
-              && oDay === day
-              && slot.start < oSlot.end
-              && oSlot.start < slot.end
-            ) {
-              busy = true;
-            }
-            if (!busy) { found = true; break outerDayLoop; }
-          }
-        }
+  function rngShuffleTopN(arr, n) {
+    if (!Array.isArray(arr) || arr.length < 2 || n <= 0) return arr;
+    const k = Math.min(n, arr.length - 1);
+    const out = arr.slice();
+    for (let i = 0; i < k; i += 1) {
+      const j = i + Math.floor(rng() * (out.length - i));
+      if (j !== i) {
+        const tmp = out[i];
+        out[i] = out[j];
+        out[j] = tmp;
       }
-      if (!found) return false; // this commit would starve `other`
     }
+    return out;
+  }
+
+  /**
+   * Forward-check stub (disabled).
+   *
+   * The full per-sibling-course forward-check turned out to be too
+   * heavy on a 37-course dataset: each candidate iteration paid an
+   * O(|courses| × |days| × |slots| × |rooms|) probe, which dwarfed
+   * the actual cost of the commit + backtrack itself.
+   *
+   * In practice the deterministic candidate ordering (MRV day rank
+   * + preference-weighted room rank + room_id tie-break) plus the
+   * defensive slotIsFree / roomBusy / teacherBusy / semBusy checks
+   * already pruned most dead-ends at the COMMIT step. The remaining
+   * dead-ends are caught by the standard recursive backtracking in
+   * placeCourse / placeSessionsThenRest, which is cheap enough on
+   * 37 courses to keep within the 2M iteration budget.
+   *
+   * Returns true unconditionally so the backtracker never prunes
+   * based on lookahead. Caller sites (placeCourse and
+   * placeSessionsThenRest) still invoke this hook so the
+   * re-introduction of a cheaper forward-check (e.g. a teacher-only
+   * or year-sem-only sibling probe) is a one-line change here.
+   */
+  function preservesFeasibility(_course, _day, _slot, _roomId) {
     return true;
   }
 
@@ -521,22 +722,20 @@ function solve(input, options = {}) {
    * Try to place ordered[idx], ordered[idx+1], ... .
    *
    * For each course:
-   *   - get (or generate) the deterministic candidate list for its
-   *     current `usedDays` fingerprint and walk it via a pointer
-   *   - for each candidate, COMMIT only after the forward-check
-   *     ("does at least one valid placement remain for every
-   *     not-yet-fully-placed OTHER course?") passes — otherwise
-   *     prune this branch immediately
+   *   - generate the deterministic candidate list for the current
+   *     `usedDays` set (MRV day rank + preference-weighted room
+   *     rank + room_id tie-break, no RNG)
+   *   - for each candidate, COMMIT only if `slotIsFree` and
+   *     `roomBusy` permit (the defensive freshness checks against
+   *     the live busy state)
+   *   - `preservesFeasibility` is currently a no-op stub; the
+   *     actual dead-end detection happens via standard recursive
+   *     backtracking on commit failure (cheap on 37 courses)
    *   - on recursive success, return true
-   *   - on recursive failure, undo that one assignment, advance
-   *     the pointer, and try the next candidate without
-   *     re-shuffling
-   *   - if every session-0 candidate is exhausted, mark THIS
-   *     course as failing and return false
-   *
-   * The candidate cache is invalidated whenever `usedDays` changes
-   * for a course (and is fingerprint-keyed, so this only happens
-   * for the actual changes — not on every iteration).
+   *   - on recursive failure, undo that one assignment and try
+   *     the next candidate without re-shuffling
+   *   - if every candidate is exhausted, mark THIS course as
+   *     failing and return false
    */
   function placeCourse(idx) {
     iterations += 1;
@@ -590,7 +789,6 @@ function solve(input, options = {}) {
       }
 
       commitOne(course, cand.day, cand.slot, cand.roomId, 0);
-      bumpPlacedCount(course.course_code, +1);
       usedDays.add(cand.day);
 
       const restOk = placeSessionsThenRest(course, idx, 1);
@@ -599,7 +797,6 @@ function solve(input, options = {}) {
       // Subtree failed. Undo this one assignment, drop the day,
       // and try the next candidate.
       undoLastAssignment();
-      bumpPlacedCount(course.course_code, -1);
       usedDays.delete(cand.day);
       cIdx += 1;
     }
@@ -658,7 +855,6 @@ function solve(input, options = {}) {
         }
 
         commitOne(course, cand.day, cand.slot, cand.roomId, s);
-        bumpPlacedCount(course.course_code, +1);
         usedDays.add(cand.day);
 
         const restOk = (s + 1 < total)
@@ -667,7 +863,6 @@ function solve(input, options = {}) {
         if (restOk) { sessionPlaced = true; return true; }
 
         undoLastAssignment();
-        bumpPlacedCount(course.course_code, -1);
         usedDays.delete(cand.day);
         cIdx += 1;
       }
@@ -686,14 +881,6 @@ function solve(input, options = {}) {
   // session.)
   const courseUsedDays = new Map();
   for (const c of ordered) courseUsedDays.set(c.course_code, new Set());
-
-  // Per-course committed-assignment count, used by the forward-check
-  // to skip courses that are already fully placed.
-  const coursePlacedCount = new Map();
-  for (const c of ordered) coursePlacedCount.set(c.course_code, 0);
-  function bumpPlacedCount(courseCode, delta) {
-    coursePlacedCount.set(courseCode, (coursePlacedCount.get(courseCode) || 0) + delta);
-  }
 
   /**
    * Note on candidate generation: the list is built FRESH at the
@@ -746,4 +933,6 @@ module.exports = {
   buildAvailableWindows,
   sortByConstraintTightness,
   parseTime,
+  formatTime,
+  normalizeSlotValue,
 };

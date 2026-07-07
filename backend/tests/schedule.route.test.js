@@ -21,28 +21,35 @@ jest.mock('../src/db/pool', () => {
   // DELETE-then-INSERT happens in the right order and that no writes
   // occur on the failure path.
   const recorded = [];
+  // One stable `query` jest.fn shared across every getPool() call.
+  // This is critical: the route handlers may call getPool() more
+  // than once per request, and tests sometimes need to override the
+  // implementation with .mockImplementationOnce. If we created a new
+  // jest.fn per getPool() call, overrides would only affect the
+  // specific object that the test happened to grab first — silently
+  // leaving the route's later getPool() calls pointing at the
+  // default implementation.
+  const query = jest.fn(async (sql, params) => {
+    recorded.push({ sql: sql.trim().split(/\s+/, 3).join(' ').toUpperCase(), params });
+    const s = sql.trim();
+    if (/SELECT\s+id\s+FROM\s+upload_batches/i.test(s)) {
+      const id = params && params[0];
+      if (id === 1) return [[{ id: 1 }]];
+      return [[]];
+    }
+    if (/FROM\s+schedules/i.test(s)) {
+      const id = params && params[0];
+      if (id === 1) return [[
+        { course_code: 'C1', teacher_abbr: 'T1', room_id: 'R1',
+          day: 'SUN', slot_start: 540, slot_end: 590,
+          year_sem: '1-2', session_index: 0 },
+      ]];
+      return [[]];
+    }
+    return [[{ insertId: 42, affectedRows: 1 }]];
+  });
   function getPool() {
-    return {
-      query: jest.fn(async (sql, params) => {
-        recorded.push({ sql: sql.trim().split(/\s+/, 3).join(' ').toUpperCase(), params });
-        const s = sql.trim();
-        if (/SELECT\s+id\s+FROM\s+upload_batches/i.test(s)) {
-          const id = params && params[0];
-          if (id === 1) return [[{ id: 1 }]];
-          return [[]];
-        }
-        if (/FROM\s+schedules/i.test(s)) {
-          const id = params && params[0];
-          if (id === 1) return [[
-            { course_code: 'C1', teacher_abbr: 'T1', room_id: 'R1',
-              day: 'SUN', slot_start: 540, slot_end: 590,
-              year_sem: '1-2', session_index: 0 },
-          ]];
-          return [[]];
-        }
-        return [[{ insertId: 42, affectedRows: 1 }]];
-      }),
-    };
+    return { query };
   }
   async function withTransaction(fn) {
     const conn = {
@@ -111,11 +118,33 @@ jest.mock('../src/services/aiProvider', () => ({
   isEnabled: () => false,
 }));
 
+// Spy-able wrapper around the real solver. The route file does
+// `const { solve, SchedulingError } = require('../src/services/scheduler')`
+// at import time, so a `jest.spyOn(module, 'solve')` set inside a
+// test would NOT intercept the captured reference. Instead we
+// replace the module entirely with a thin proxy that records every
+// (input, options) call and delegates to the real solve so the
+// default test path (feasible batch → 200) keeps working unchanged.
+const mockSolverCalls = [];
+jest.mock('../src/services/scheduler', () => {
+  const mockRealScheduler = jest.requireActual('../src/services/scheduler');
+  const wrapped = (input, options) => {
+    mockSolverCalls.push({ input, options });
+    return mockRealScheduler.solve(input, options);
+  };
+  return {
+    ...mockRealScheduler,
+    solve: wrapped,
+    __solverCalls: mockSolverCalls,
+  };
+});
+
 const request = require('supertest');
 const { createApp } = require('../src/app');
 const poolMock = require('../src/db/pool');
 const loaderMock = require('../src/services/routineLoader');
 const aiMock = require('../src/services/aiProvider');
+const schedulerMock = require('../src/services/scheduler');
 
 const app = createApp();
 
@@ -125,6 +154,7 @@ describe('POST /api/batches/:id/generate', () => {
     loaderMock.loadBatchForSchedule.mockClear();
     aiMock.explainFailure.mockClear();
     aiMock.explainFailure.mockResolvedValue({ available: false, friendly_hint: null, reason: 'no_api_key' });
+    schedulerMock.__solverCalls.length = 0;
   });
 
   test('returns 200 + persisted assignments on a feasible batch', async () => {
@@ -374,6 +404,68 @@ describe('POST /api/batches/:id/generate', () => {
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('INVALID_SEED');
   });
+
+  test('accepts a per-request budget override and uses it on the solver', async () => {
+    schedulerMock.__solverCalls.length = 0;
+    const res = await request(app)
+      .post('/api/batches/1/generate')
+      .send({ budget: 750000 });
+    expect(res.status).toBe(200);
+    expect(schedulerMock.__solverCalls.length).toBeGreaterThan(0);
+    const lastOpts = schedulerMock.__solverCalls[schedulerMock.__solverCalls.length - 1].options;
+    expect(lastOpts).toBeDefined();
+    expect(lastOpts.budget).toBe(750000);
+  });
+
+  test('caps a too-large per-request budget at the internal max (10M)', async () => {
+    schedulerMock.__solverCalls.length = 0;
+    const res = await request(app)
+      .post('/api/batches/1/generate')
+      .send({ budget: 999_999_999 });
+    expect(res.status).toBe(200);
+    const lastOpts = schedulerMock.__solverCalls[schedulerMock.__solverCalls.length - 1].options;
+    expect(lastOpts.budget).toBeLessThanOrEqual(10_000_000);
+  });
+
+  test('falls back to SCHEDULER_BUDGET env (or 200k) when no budget is sent', async () => {
+    schedulerMock.__solverCalls.length = 0;
+    const expectedDefault = parseInt(process.env.SCHEDULER_BUDGET || '', 10) || 200_000;
+    const res = await request(app).post('/api/batches/1/generate');
+    expect(res.status).toBe(200);
+    const lastOpts = schedulerMock.__solverCalls[schedulerMock.__solverCalls.length - 1].options;
+    expect(lastOpts.budget).toBe(expectedDefault);
+  });
+
+  test('rejects non-positive-integer budget', async () => {
+    // Cases that MUST return 400 INVALID_BUDGET:
+    const badCases = ['abc', 0, -1, 1.5, true, false, '', '0', '-1', '1.5', {}, []];
+    for (const bad of badCases) {
+      const res = await request(app)
+        .post('/api/batches/1/generate')
+        .send({ budget: bad });
+      expect(res.status).toBe(400);
+      expect(res.body.code).toBe('INVALID_BUDGET');
+    }
+    // null / undefined / NaN serialize to "absent" in JSON so the
+    // route falls through to the default budget → feasible batch
+    // mock returns 200.
+    for (const absent of [null, undefined]) {
+      const res = await request(app)
+        .post('/api/batches/1/generate')
+        .send({ budget: absent });
+      expect(res.status).toBe(200);
+    }
+  });
+
+  test('accepts string budget that parses to a positive integer', async () => {
+    schedulerMock.__solverCalls.length = 0;
+    const res = await request(app)
+      .post('/api/batches/1/generate')
+      .send({ budget: '500000' });
+    expect(res.status).toBe(200);
+    const lastOpts = schedulerMock.__solverCalls[schedulerMock.__solverCalls.length - 1].options;
+    expect(lastOpts.budget).toBe(500000);
+  });
 });
 
 describe('GET /api/batches/:id/schedule', () => {
@@ -398,5 +490,93 @@ describe('GET /api/batches/:id/schedule', () => {
     const res = await request(app).get('/api/batches/oops/schedule');
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('INVALID_BATCH_ID');
+  });
+
+  // Regression: mysql2 with dateStrings:true returns TIME columns as
+  // 'HH:MM:SS' strings. The GET path normalizes them back to integer
+  // minutes so the API response contract matches the just-generated
+  // POST response. The shared jest.fn at the module level (set up in
+  // the jest.mock factory above) is what we override — every getPool()
+  // call returns the SAME object, so any .mockImplementation we set
+  // here is visible to the route handler regardless of how many times
+  // it calls getPool() internally.
+  test('GET /api/batches/:id/schedule normalizes TIME strings to integer minutes', async () => {
+    const pool = require('../src/db/pool').getPool();
+    const origImpl = pool.query.getMockImplementation();
+    // Persistent override (not mockImplementationOnce) so both the
+    // upload_batches lookup and the schedule SELECT get the test-
+    // shaped data — the shared jest.fn at the module level means
+    // every getPool() call inside the route handler sees this body.
+    pool.query.mockImplementation(async (sql, params) => {
+      const s = String(sql).trim();
+      if (/SELECT\s+id\s+FROM\s+upload_batches/i.test(s)) {
+        return [[{ id: 1 }]];
+      }
+      if (/FROM\s+schedules/i.test(s)) {
+        return [[
+          {
+            course_code: 'C1', teacher_abbr: 'T1', room_id: 'R1',
+            day: 'SUN', slot_start: '09:00:00', slot_end: '09:50:00',
+            year_sem: '1-2', session_index: 0,
+          },
+          {
+            course_code: 'C2', teacher_abbr: 'T2', room_id: 'R2',
+            day: 'MON', slot_start: '10:30', slot_end: '11:20',
+            year_sem: '1-2', session_index: 0,
+          },
+        ]];
+      }
+      return [[]];
+    });
+    try {
+      const res = await request(app).get('/api/batches/1/schedule');
+      expect(res.status).toBe(200);
+      expect(res.body.assignments).toHaveLength(2);
+      expect(res.body.assignments[0].slot_start).toBe(540);
+      expect(res.body.assignments[0].slot_end).toBe(590);
+      expect(res.body.assignments[1].slot_start).toBe(630);
+      expect(res.body.assignments[1].slot_end).toBe(680);
+      // Types must be Number, not String — the frontend's
+      // RoutineGrid uses `slot_start` as a Map key + numeric
+      // arithmetic.
+      for (const a of res.body.assignments) {
+        expect(typeof a.slot_start).toBe('number');
+        expect(typeof a.slot_end).toBe('number');
+      }
+    } finally {
+      // Restore the default body for subsequent tests.
+      if (origImpl) pool.query.mockImplementation(origImpl);
+      else pool.query.mockReset();
+    }
+  });
+});
+
+// Regression: the `schedules` table stores `slot_start` / `slot_end`
+// as MySQL TIME columns which REJECT raw integer minutes >= 838 with
+// "Incorrect time value: '890' for column 'slot_end'". The POST
+// path must convert integer minutes to 'HH:MM' strings before the
+// bulk INSERT.
+describe('POST /api/batches/:id/generate — slot TIME formatting', () => {
+  test('binds slot_start / slot_end as zero-padded HH:MM strings, not raw minutes', async () => {
+    poolMock._reset();
+    const res = await request(app).post('/api/batches/1/generate');
+    expect(res.status).toBe(200);
+    const insertCall = poolMock._recorded.find(
+      (r) => /INSERT INTO schedules/i.test(r.sql)
+    );
+    expect(insertCall).toBeDefined();
+    // The bulk INSERT binds rows[][]; each row's slot_start + slot_end
+    // are positions [5] and [6]. They must be 'HH:MM' strings, not
+    // integers.
+    const rows = insertCall.params[0];
+    expect(Array.isArray(rows)).toBe(true);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row[5]).toMatch(/^\d{2}:\d{2}$/); // slot_start
+      expect(row[6]).toMatch(/^\d{2}:\d{2}$/); // slot_end
+      // Defensive: NEVER an integer — that's the bug we just fixed.
+      expect(typeof row[5]).toBe('string');
+      expect(typeof row[6]).toBe('string');
+    }
   });
 });

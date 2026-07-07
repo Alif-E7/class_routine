@@ -60,12 +60,15 @@ const router = express.Router({ mergeParams: true });
 
 const { withTransaction, getPool } = require('../db/pool');
 const { loadBatchForSchedule, LoadError } = require('../services/routineLoader');
-const { solve, SchedulingError } = require('../services/scheduler');
+const { solve, SchedulingError, formatTime, normalizeSlotValue } = require('../services/scheduler');
 const { explainFailure } = require('../services/aiProvider');
 const { buildDiagnostics } = require('../services/diagnostics');
 
 // 10-minute ceiling per the build prompt's "long-running" callout.
-const SOLVE_BUDGET_OVERRIDE = parseInt(process.env.SCHEDULER_BUDGET || '', 10) || 200_000;
+const SOLVE_BUDGET_DEFAULT = parseInt(process.env.SCHEDULER_BUDGET || '', 10) || 200_000;
+// Hard cap on any per-request override so callers can't ask for a
+// runaway search. 10M is well above what any sane real dataset needs.
+const SOLVE_BUDGET_MAX = 10_000_000;
 
 router.post('/:id/generate', async (req, res, next) => {
   const batchId = Number.parseInt(req.params.id, 10);
@@ -97,6 +100,35 @@ router.post('/:id/generate', async (req, res, next) => {
     };
   }
 
+  // Optional per-request budget override. Bounded above by
+  // SOLVE_BUDGET_MAX so the API can't be coerced into a runaway
+  // search. Falls back to SCHEDULER_BUDGET (or 200k).
+  let requestBudget = SOLVE_BUDGET_DEFAULT;
+  const budgetRaw = req.body && req.body.budget;
+  if (budgetRaw !== undefined && budgetRaw !== null) {
+    // Accept either a JSON number OR a string of digits. Reject
+    // booleans, floats, negatives, NaN, arrays, objects, etc. — the
+    // goal is to forbid accidental / hostile inputs from sending the
+    // solver into a degenerate state. Math.min with the cap happens
+    // AFTER validation so the cap can't hide a bad value.
+    let parsed;
+    if (typeof budgetRaw === 'number') {
+      parsed = budgetRaw;
+    } else if (typeof budgetRaw === 'string' && /^[1-9]\d*$/.test(budgetRaw)) {
+      parsed = parseInt(budgetRaw, 10);
+    } else {
+      parsed = NaN;
+    }
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_BUDGET',
+        message: 'budget must be a positive integer',
+      });
+    }
+    requestBudget = Math.min(parsed, SOLVE_BUDGET_MAX);
+  }
+
   try {
     // 1. Load everything for this batch.
     const loaded = await loadBatchForSchedule(batchId);
@@ -114,7 +146,7 @@ router.post('/:id/generate', async (req, res, next) => {
         },
         {
           rng,
-          budget: SOLVE_BUDGET_OVERRIDE,
+          budget: requestBudget,
         }
       );
     } catch (err) {
@@ -189,8 +221,14 @@ router.post('/:id/generate', async (req, res, next) => {
         a.teacher_abbr,
         a.room_id,
         a.day,
-        a.slot_start,
-        a.slot_end,
+        // `schedules.slot_start` / `slot_end` are MySQL TIME columns.
+        // MySQL rejects raw integer minutes (≥ 838) with
+        // "Incorrect time value: '890'". Convert to zero-padded
+        // "HH:MM" strings at the SQL boundary; the in-memory
+        // `assignments` array still carries integer minutes so the
+        // API response contract is unchanged.
+        formatTime(a.slot_start),
+        formatTime(a.slot_end),
         a.year_sem,
         a.session_index,
       ]);
@@ -270,12 +308,21 @@ router.get('/:id/schedule', async (req, res, next) => {
        ORDER BY year_sem, day, slot_start, course_code`,
       [batchId]
     );
+    // mysql2 with `dateStrings: true` returns TIME columns as
+    // 'HH:MM:SS' strings. Normalize back to integer minutes so the
+    // API response shape matches the just-generated POST response
+    // (which carries integer minutes from the solver).
+    const normalized = rows.map((r) => ({
+      ...r,
+      slot_start: normalizeSlotValue(r.slot_start),
+      slot_end: normalizeSlotValue(r.slot_end),
+    }));
     return res.json({
       success: true,
       code: 'SCHEDULE_OK',
       batch_id: batchId,
-      assignments_count: rows.length,
-      assignments: rows,
+      assignments_count: normalized.length,
+      assignments: normalized,
     });
   } catch (err) {
     next(err);

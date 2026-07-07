@@ -50,6 +50,7 @@ const router = express.Router({ mergeParams: true });
 
 const { getPool } = require('../db/pool');
 const { parseEditRequest, explainValidator, isEnabled } = require('../services/aiProvider');
+const { normalizeSlotValue } = require('../services/scheduler');
 
 const MIN_PROMPT_LEN = 8;
 const MAX_PROMPT_LEN = 500;
@@ -108,6 +109,13 @@ router.post('/:id/edit', async (req, res, next) => {
          ORDER BY year_sem, day, slot_start, course_code`,
       [batchId]
     );
+    // Normalize TIME columns ('HH:MM:SS' strings under dateStrings:true)
+    // back to integer minutes — the AI provider prompt and the response
+    // contract both expect numeric slot_start/slot_end.
+    for (const r of scheduleRows) {
+      r.slot_start = normalizeSlotValue(r.slot_start);
+      r.slot_end = normalizeSlotValue(r.slot_end);
+    }
     if (scheduleRows.length === 0) {
       return res.status(409).json({
         success: false,

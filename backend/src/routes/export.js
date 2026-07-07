@@ -30,6 +30,7 @@ const childProcess = require('child_process');
 
 const { getPool } = require('../db/pool');
 const { generateRoutineDocx } = require('../services/docxGenerator');
+const { normalizeSlotValue } = require('../services/scheduler');
 
 const router = express.Router({ mergeParams: true });
 
@@ -85,6 +86,13 @@ async function loadExportData(batchId) {
      ORDER BY year_sem, day, slot_start, course_code`,
     [batchId]
   );
+  // Normalize DB TIME values back to integer minutes — docxGenerator's
+  // indexAssignments collects `slot_start` as a Map key for cell lookups,
+  // and the rest of the generator assumes numeric slot math.
+  for (const r of assignmentRows) {
+    r.slot_start = normalizeSlotValue(r.slot_start);
+    r.slot_end = normalizeSlotValue(r.slot_end);
+  }
 
   const [teacherRows] = await pool.query(
     `SELECT full_name, abbreviation, designation, department
