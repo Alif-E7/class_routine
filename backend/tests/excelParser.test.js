@@ -32,6 +32,19 @@ function buildXlsxBuffer({ breakHeaderRow = false } = {}) {
     ['CSE102', 'Discrete Math', '2.0', 'CSE', '1-1', 'BIC'],
   ]), 'Courses');
 
+  // NEW: Year_Sem master lookup
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['year_sem', 'year', 'semester', 'group_code', 'is_active'],
+    ['1-1', 1, 1, '1-2', 'Yes'],
+    ['1-2', 1, 2, '1-2', 'No'],
+    ['2-1', 2, 1, '1-2', 'No'],
+    ['2-2', 2, 2, '1-2', 'No'],
+    ['3-1', 3, 1, '3-4', 'No'],
+    ['3-2', 3, 2, '3-4', 'No'],
+    ['4-1', 4, 1, '3-4', 'No'],
+    ['4-2', 4, 2, '3-4', 'No'],
+  ]), 'Year_Sem');
+
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
     ['room_id', 'room_name', 'type'],
     ['R101', 'Room 101', 'classroom'],
@@ -49,6 +62,16 @@ function buildXlsxBuffer({ breakHeaderRow = false } = {}) {
     ['R101', '1-2', 100],
     ['R102', '3-4', 100],
   ]), 'Room_Preference');
+
+  // NEW: Day_Preference sheet (Lab weights; Theory auto-complemented by parser)
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['day', 'class_type', 'weight_percent', 'note'],
+    ['SUN', 'Lab', 30, null],
+    ['MON', 'Lab', 30, null],
+    ['TUE', 'Lab', 70, null],
+    ['WED', 'Lab', 50, null],
+    ['THU', 'Lab', 70, null],
+  ]), 'Day_Preference');
 
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
     ['teacher_abbr', 'day', 'start_time', 'end_time'],
@@ -83,6 +106,14 @@ describe('excelParser — round-trip', () => {
     expect(wb.credit_rules).toHaveLength(2);
     expect(wb.room_preference).toHaveLength(2);
     expect(wb.teacher_unavailability).toHaveLength(1);
+    // NEW: year_sem and day_preference arrays present
+    expect(wb.year_sem).toBeDefined();
+    expect(wb.year_sem.length).toBeGreaterThan(0);
+    expect(wb.year_sem[0].year_sem).toBe('1-1');
+    expect(wb.year_sem[0].is_active).toBe('Yes');
+    // day_preference: parser auto-complements — 5 Lab rows → 10 rows (5 Lab + 5 Theory)
+    expect(wb.day_preference).toBeDefined();
+    expect(wb.day_preference.length).toBe(10);
     expect(wb.config.working_days).toBe('SUN,MON,TUE,WED,THU');
     expect(wb.config.class_start).toBe('09:00');
   });
@@ -150,6 +181,16 @@ describe('excelParser — stop at first blank row', () => {
     ]), 'Room_Preference');
 
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['year_sem', 'year', 'semester', 'group_code', 'is_active'],
+      ['1-1', 1, 1, '1-2', 'Yes'],
+    ]), 'Year_Sem');
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['day', 'class_type', 'weight_percent', 'note'],
+      ['SUN', 'Lab', 30, null],
+    ]), 'Day_Preference');
+
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
       ['teacher_abbr', 'day', 'start_time', 'end_time'],
     ]), 'Teacher_Unavailability');
 
@@ -210,11 +251,13 @@ describe('excelParser — stop at first blank row', () => {
       ['Should Not Appear', 'SNA', 'Lecturer', 'CSE'],
     ]), 'Teachers');
 
-    // The other 6 sheets must exist or parseWorkbook rejects the file.
+    // The other sheets must exist or parseWorkbook rejects the file.
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['course_code','course_name','credit','dept','year_sem','teacher_abbr'],['CSE101','Intro','3','CSE','1-1','REA']]), 'Courses');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['year_sem','year','semester','group_code','is_active'],['1-1',1,1,'1-2','Yes']]), 'Year_Sem');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['room_id','room_name','type'],['R101','Room 101','classroom']]), 'Rooms');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['credit','type','classes_per_week','duration_minutes'],['3','theory',3,50]]), 'Credit_Rules');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['room_id','year_group','weight_percent'],['R101','1-2',100]]), 'Room_Preference');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['day','class_type','weight_percent','note'],['SUN','Lab',30,null]]), 'Day_Preference');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['teacher_abbr','day','start_time','end_time']]), 'Teacher_Unavailability');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['key','value'],['working_days','SUN,MON']]), 'Config');
 
@@ -234,9 +277,11 @@ describe('excelParser — stop at first blank row', () => {
     ]), 'Teachers');
 
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['course_code','course_name','credit','dept','year_sem','teacher_abbr'],['CSE101','Intro','3','CSE','1-1','REA']]), 'Courses');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['year_sem','year','semester','group_code','is_active'],['1-1',1,1,'1-2','Yes']]), 'Year_Sem');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['room_id','room_name','type'],['R101','Room 101','classroom']]), 'Rooms');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['credit','type','classes_per_week','duration_minutes'],['3','theory',3,50]]), 'Credit_Rules');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['room_id','year_group','weight_percent'],['R101','1-2',100]]), 'Room_Preference');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['day','class_type','weight_percent','note'],['SUN','Lab',30,null]]), 'Day_Preference');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['teacher_abbr','day','start_time','end_time']]), 'Teacher_Unavailability');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['key','value'],['working_days','SUN,MON']]), 'Config');
 

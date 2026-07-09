@@ -9,6 +9,7 @@ const scheduleRoutes = require('./routes/schedule');
 const batchesRoutes = require('./routes/batches');
 const exportRoutes = require('./routes/export');
 const editRoutes = require('./routes/edit');
+const authRoutes = require('./routes/auth');
 
 function createApp() {
   const app = express();
@@ -34,6 +35,7 @@ function createApp() {
   app.use('/api/batches', scheduleRoutes);
   app.use('/api/batches', exportRoutes);
   app.use('/api/batches', editRoutes);
+  app.use('/api/auth', authRoutes);
 
   // Multer errors (e.g. file-too-big, wrong field name) throw inside the
   // upload route. Map them to clean 4xx instead of letting them fall to the

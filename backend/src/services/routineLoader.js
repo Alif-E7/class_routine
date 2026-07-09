@@ -6,48 +6,33 @@
  *
  * Loader output (the `solve` input contract):
  *   {
- *     config: { working_days, class_start, class_end, break_start,
- *               break_end, duration_minutes },
- *     courses: [ { course_code, course_name, teacher_abbr, year_sem,
- *                  derived_type, derived_duration_min,
- *                  derived_classes_per_week } ],
- *     rooms: [ { room_id, room_name, type } ],
- *     room_preference: [ { room_id, year_group, weight_percent } ],
+ *     config:   { working_days, class_start, class_end, break_start,
+ *                 break_end, duration_minutes },
+ *     courses:  [ { course_code, course_name, teacher_abbr, year_sem,
+ *                   derived_type, derived_duration_min,
+ *                   derived_classes_per_week, year_group } ],
+ *     rooms:    [ { room_id, room_name, type } ],
+ *     room_preference:        [ { room_id, year_group, weight_percent } ],
+ *     day_preference:         [ { day, class_type, weight_percent } ],  // NEW
+ *     year_sem_map:           { year_sem: group_code }                  // NEW
  *     teacher_unavailability: [ { teacher_abbr, day, start_time, end_time } ],
  *   }
  *
- * The config table in MySQL stores time-window keys as strings;
- * `duration_minutes` is NOT a column on `config` (per build prompt §2
- * Config spec) — it's derived from the courses loaded for this batch.
- * If courses have a uniform duration (the common case: 50 theory or
- * 110 lab) we use that. If they differ, we use the MAX so a single
- * slot grid fits every course's duration.
- *
- * `withConnection` lets tests inject a fake connection.
+ * HC-6: Only courses whose year_sem maps to an active Year_Sem row are
+ * returned. Inactive-semester courses are already excluded at upload
+ * time (not inserted into the `courses` table), but the loader adds a
+ * defensive guard that re-checks against the year_sem table in case
+ * is_active was updated after upload.
  */
 
 const { getPool } = require('../db/pool');
 
-function deriveDurationMinutes(courses) {
-  if (!courses || courses.length === 0) return 50;
-  const distinct = Array.from(
-    new Set(courses.map((c) => Number(c.derived_duration_min)).filter((n) => Number.isFinite(n) && n > 0))
-  );
-  if (distinct.length === 0) return 50;
-  if (distinct.length === 1) return distinct[0];
-  // Mixed theory + lab: pick the larger of the two so the slot grid
-  // covers the longest session. Labs (110) become the slot length;
-  // theory (50) sessions will look like 2 contiguous slots to the
-  // solver. That keeps a single uniform grid (no per-course slot
-  // matrix), which the prompt's `buildAvailableWindows(input.config)`
-  // example relies on.
-  return Math.max(...distinct);
+function deriveDurationMinutes() {
+  // Always partition the day into uniform 50-minute blocks.
+  // Lab sessions span multiple consecutive 50-minute blocks.
+  return 50;
 }
 
-/**
- * Load a batch and throw a `LoadError` with a stable code if anything
- * required is missing. The route layer translates that to a 404/422.
- */
 class LoadError extends Error {
   constructor(message, code, details) {
     super(message);
@@ -59,6 +44,8 @@ class LoadError extends Error {
 
 async function loadBatchForSchedule(batchId, conn) {
   const exec = conn || getPool();
+
+  // ── Batch status check ────────────────────────────────────────────
   const [batchRows] = await exec.query(
     'SELECT id, filename, semester, status FROM upload_batches WHERE id = ?',
     [batchId]
@@ -75,6 +62,7 @@ async function loadBatchForSchedule(batchId, conn) {
     );
   }
 
+  // ── Config ───────────────────────────────────────────────────────
   const [configRows] = await exec.query(
     'SELECT `key`, `value` FROM config WHERE upload_batch_id = ?',
     [batchId]
@@ -92,6 +80,26 @@ async function loadBatchForSchedule(batchId, conn) {
     );
   }
 
+  // ── Year_Sem — active lookup (HC-6) ──────────────────────────────
+  // Load ALL year_sem rows so we can: (a) build the group_code map,
+  // (b) filter which year_sems are currently active for scheduling.
+  const [yearSemRows] = await exec.query(
+    `SELECT year_sem, year, semester, group_code, is_active
+     FROM year_sem WHERE upload_batch_id = ?`,
+    [batchId]
+  );
+
+  // year_sem → group_code map (used to resolve room-preference keys).
+  const yearSemMap = {};
+  const activeYearSemSet = new Set();
+  for (const ys of yearSemRows) {
+    yearSemMap[ys.year_sem] = ys.group_code;
+    if (Number(ys.is_active) === 1) {
+      activeYearSemSet.add(ys.year_sem);
+    }
+  }
+
+  // ── Courses — active year_sems only ──────────────────────────────
   const [courseRows] = await exec.query(
     `SELECT course_code, course_name, teacher_abbr, year_sem,
             derived_type, derived_duration_min, derived_classes_per_week
@@ -106,16 +114,49 @@ async function loadBatchForSchedule(batchId, conn) {
     );
   }
 
+  // Defensive HC-6 filter: skip any course whose year_sem is no longer
+  // active (covers the edge case where is_active was changed post-upload).
+  const activeCourses = courseRows
+    .filter(c => {
+      // If year_sem table has no rows, fall through without filtering.
+      if (yearSemRows.length === 0) return true;
+      return activeYearSemSet.has(c.year_sem);
+    })
+    .map(c => ({
+      ...c,
+      // Attach year_group directly so the scheduler can look up room
+      // preferences without re-parsing year_sem strings.
+      year_group: yearSemMap[c.year_sem] || null,
+    }));
+
+  if (activeCourses.length === 0) {
+    throw new LoadError(
+      `Batch ${batchId} has no courses in active year_sems — cannot generate a schedule. ` +
+      `Active year_sems: [${[...activeYearSemSet].join(', ')}]`,
+      'NO_ACTIVE_COURSES',
+      { batchId, active_year_sems: [...activeYearSemSet] }
+    );
+  }
+
+  // ── Rooms ─────────────────────────────────────────────────────────
   const [roomRows] = await exec.query(
     'SELECT room_id, room_name, type FROM rooms WHERE upload_batch_id = ? ORDER BY room_id',
     [batchId]
   );
 
+  // ── Room_Preference ───────────────────────────────────────────────
   const [prefRows] = await exec.query(
     'SELECT room_id, year_group, weight_percent FROM room_preference WHERE upload_batch_id = ?',
     [batchId]
   );
 
+  // ── Day_Preference (NEW) ──────────────────────────────────────────
+  const [dayPrefRows] = await exec.query(
+    'SELECT day, class_type, weight_percent FROM day_preference WHERE upload_batch_id = ?',
+    [batchId]
+  );
+
+  // ── Teacher_Unavailability ─────────────────────────────────────────
   const [unavailRows] = await exec.query(
     `SELECT teacher_abbr, day,
             TIME_FORMAT(start_time, '%H:%i') AS start_time,
@@ -125,20 +166,22 @@ async function loadBatchForSchedule(batchId, conn) {
   );
 
   const config = {
-    working_days: String(configRaw.working_days).trim(),
-    class_start: String(configRaw.class_start).trim(),
-    class_end: String(configRaw.class_end).trim(),
-    break_start: String(configRaw.break_start).trim(),
-    break_end: String(configRaw.break_end).trim(),
-    duration_minutes: deriveDurationMinutes(courseRows),
+    working_days:     String(configRaw.working_days).trim(),
+    class_start:      String(configRaw.class_start).trim(),
+    class_end:        String(configRaw.class_end).trim(),
+    break_start:      String(configRaw.break_start).trim(),
+    break_end:        String(configRaw.break_end).trim(),
+    duration_minutes: deriveDurationMinutes(),
   };
 
   return {
     batch,
     config,
-    courses: courseRows,
-    rooms: roomRows,
-    room_preference: prefRows,
+    courses:                activeCourses,
+    rooms:                  roomRows,
+    room_preference:        prefRows,
+    day_preference:         dayPrefRows,   // NEW — for scheduler day bias
+    year_sem_map:           yearSemMap,    // NEW — year_sem → group_code
     teacher_unavailability: unavailRows,
   };
 }

@@ -183,4 +183,32 @@ router.delete('/:id', async (req, res, next) => {
   }
 });
 
+// GET /api/batches/:id/teachers — get teachers for a batch
+router.get('/:id/teachers', async (req, res, next) => {
+  const batchId = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(batchId) || batchId <= 0) {
+    return res.status(400).json({
+      success: false,
+      code: 'INVALID_BATCH_ID',
+      message: 'batch id must be a positive integer',
+    });
+  }
+  try {
+    const pool = getPool();
+    const [rows] = await pool.query(
+      `SELECT full_name, abbreviation, designation, department
+       FROM teachers
+       WHERE upload_batch_id = ?
+       ORDER BY abbreviation`,
+      [batchId]
+    );
+    return res.json({
+      success: true,
+      teachers: rows,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

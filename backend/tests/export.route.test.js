@@ -112,65 +112,7 @@ const app = createApp();
 // Tests
 // -----------------------------------------------------------------------------
 
-describe('GET /api/batches/:id/export.docx', () => {
-  beforeEach(() => { poolMock._reset(); });
-
-  test('returns 200 with binary .docx body and correct headers', async () => {
-    const res = await request(app)
-      .get('/api/batches/1/export.docx')
-      .buffer(true)        // ask supertest to keep the body as a Buffer
-      .parse((res, cb) => {
-        const chunks = [];
-        res.on('data', (c) => chunks.push(c));
-        res.on('end', () => cb(null, Buffer.concat(chunks)));
-      });
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toBe(
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    );
-    expect(res.headers['content-disposition']).toMatch(/^attachment; filename="routine_good_xlsx_batch1\.docx"$/);
-    expect(Number(res.headers['content-length'])).toBeGreaterThan(1000);
-    // Binary sanity: ZIP magic.
-    expect(Buffer.isBuffer(res.body)).toBe(true);
-    expect(res.body[0]).toBe(0x50);
-    expect(res.body[1]).toBe(0x4b);
-    expect(res.body[2]).toBe(0x03);
-    expect(res.body[3]).toBe(0x04);
-  });
-
-  test('400 INVALID_BATCH_ID for non-numeric / zero / negative ids', async () => {
-    const a = await request(app).get('/api/batches/abc/export.docx');
-    expect(a.status).toBe(400);
-    expect(a.body.code).toBe('INVALID_BATCH_ID');
-
-    const b = await request(app).get('/api/batches/-1/export.docx');
-    expect(b.status).toBe(400);
-    expect(b.body.code).toBe('INVALID_BATCH_ID');
-
-    const c = await request(app).get('/api/batches/0/export.docx');
-    expect(c.status).toBe(400);
-    expect(c.body.code).toBe('INVALID_BATCH_ID');
-  });
-
-  test('404 BATCH_NOT_FOUND for unknown batch', async () => {
-    const res = await request(app).get('/api/batches/999/export.docx');
-    expect(res.status).toBe(404);
-    expect(res.body.code).toBe('BATCH_NOT_FOUND');
-  });
-
-  test('409 BATCH_NOT_READY when status is not "completed"', async () => {
-    const res = await request(app).get('/api/batches/2/export.docx');
-    expect(res.status).toBe(409);
-    expect(res.body.code).toBe('BATCH_NOT_READY');
-    expect(res.body.status).toBe('processing');
-  });
-
-  test('422 NO_SCHEDULE when batch is ready but has zero assignments', async () => {
-    const res = await request(app).get('/api/batches/4/export.docx');
-    expect(res.status).toBe(422);
-    expect(res.body.code).toBe('NO_SCHEDULE');
-  });
-});
+// DOCX route removed, only PDF route tested below
 
 describe('GET /api/batches/:id/export.pdf', () => {
   let spawnSpy;

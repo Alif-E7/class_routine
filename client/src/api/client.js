@@ -69,6 +69,7 @@ export const routineApi = {
 export const batchesApi = {
   list: () => api.get('/batches'),
   detail: (batchId) => api.get(`/batches/${batchId}`),
+  getTeachers: (batchId) => api.get(`/batches/${batchId}/teachers`),
   /**
    * Hard-delete a batch. Cascades to teachers/courses/rooms/credit_rules/
    * room_preference/teacher_unavailability/config/schedules.
@@ -173,20 +174,6 @@ export const editApi = {
  * meaningful toast.
  */
 export const exportApi = {
-  /**
-   * Fetch a batch's routine as .docx and trigger a browser download.
-   * @param {number} batchId
-   * @returns {Promise<{filename: string, size: number}>}
-   */
-  async downloadDocx(batchId) {
-    const res = await api.get(`/batches/${batchId}/export.docx`, {
-      responseType: 'blob',
-    });
-    const filename = parseFilename(res.headers['content-disposition'])
-      || `routine_batch${batchId}.docx`;
-    saveBlob(res.data, filename);
-    return { filename, size: res.data.size };
-  },
 
   /**
    * Fetch a batch's routine as .pdf and trigger a browser download.

@@ -97,16 +97,14 @@ const RoutinePage = () => {
     loadRoutine();
   }, [batchId, loadRoutine]);
 
-  // Try to fetch teachers for the legend — endpoint does not exist yet in
-  // the new API, so we degrade silently. The legend will be hidden when empty.
+  // Load teachers for the legend
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        // No /api/batches/:id/teachers route yet. We will surface this in a
-        // later task (Phase 7+). For now, leave teachers empty.
+        const res = await batchesApi.getTeachers(batchId);
         if (cancelled) return;
-        setTeachers([]);
+        setTeachers(res.data.teachers || []);
       } catch (_e) {
         if (!cancelled) setTeachers([]);
       }
@@ -190,26 +188,22 @@ const RoutinePage = () => {
     }
   };
 
-  const handleDownload = async (kind) => {
+  const handleDownload = async () => {
     if (!hasSchedule) {
       toast.error('Generate the routine first.');
       return;
     }
-    setDownloading(kind);
-    const tid = toast.loading(
-      kind === 'docx' ? 'Building Word document…' : 'Converting to PDF…'
-    );
+    setDownloading('pdf');
+    const tid = toast.loading('Converting to PDF…');
     try {
-      const { filename } = kind === 'docx'
-        ? await exportApi.downloadDocx(batchId)
-        : await exportApi.downloadPdf(batchId);
+      const { filename } = await exportApi.downloadPdf(batchId);
       toast.success(`Downloaded ${filename}`, { id: tid });
     } catch (err) {
       const msg = err.code === 'PDF_UNAVAILABLE'
-        ? 'PDF export needs LibreOffice on the server. Try Download Word instead.'
+        ? 'PDF export requires LibreOffice on the server.'
         : err.code === 'NO_SCHEDULE'
           ? 'Generate the routine first.'
-          : err.message || `Failed to download ${kind.toUpperCase()}.`;
+          : err.message || 'Failed to download PDF.';
       toast.error(msg, { id: tid, duration: 6000 });
     } finally {
       setDownloading(null);
@@ -278,20 +272,7 @@ const RoutinePage = () => {
             <RotateCw className="w-4 h-4" /> Refresh
           </button>
           <button
-            onClick={() => handleDownload('docx')}
-            disabled={!hasSchedule || downloading != null || generating}
-            className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-            title={hasSchedule ? 'Download as .docx' : 'Generate the routine first'}
-          >
-            {downloading === 'docx' ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <FileText className="w-4 h-4" />
-            )}
-            Download Word
-          </button>
-          <button
-            onClick={() => handleDownload('pdf')}
+            onClick={handleDownload}
             disabled={!hasSchedule || downloading != null || generating}
             className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
             title={hasSchedule ? 'Download as .pdf (needs LibreOffice on server)' : 'Generate the routine first'}

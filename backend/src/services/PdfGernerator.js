@@ -1,21 +1,17 @@
 'use strict';
 
 /**
- * docxGenerator.js — build the routine grid as a .docx (Word) document.
+ * PdfGernerator.js — build the routine grid as a Word document buffer for PDF conversion.
  *
  * Per build prompt §3.5:
  *   - rows = working_days; columns = union of distinct slot_start values
  *     actually used in `schedules` for this batch
  *   - day rows + year-sem sub-rows + a merged "BREAK" column
  *   - 3-row university header (university / department / semester)
- *   - teacher legend table below
+ *   - teacher legend table below in side-by-side format
  *
  * Mirrors the React `RoutineGrid` component so the printed page is
  * visually identical to the on-screen version.
- *
- * The docx package (https://docx.js.org) lets us build the document
- * programmatically — no .docx template binary is required, which keeps
- * the test suite hermetic and avoids fragile template dependencies.
  */
 
 const {
@@ -85,9 +81,6 @@ const DEFAULT_YEAR_SEM_ORDER = ['4-1', '3-2', '2-2', '2-1', '1-1'];
 
 /**
  * Group an assignment row by (day, slot_start) to a single cell payload
- * with up to 2 entries (lab sessions that span 2 slots) — though in
- * practice `slot_start`/`slot_end` is one slot so each row produces a
- * single cell.
  */
 function indexAssignments(assignments) {
   const byKey = new Map(); // "DAY|MIN_START" -> [{course, teacher, room}, ...]
@@ -101,18 +94,19 @@ function indexAssignments(assignments) {
 
 /**
  * Collect the union of distinct slot_start values across all assignments,
- * sorted ascending. These are the column headers.
+ * sorted ascending chronologically using hhmmToMin.
  */
 function collectSlotColumns(assignments) {
   const set = new Set();
-  for (const a of assignments) set.add(a.slot_start);
-  return Array.from(set).sort((a, b) => a - b);
+  for (const a of assignments) {
+    if (a.slot_start != null) set.add(a.slot_start);
+  }
+  return Array.from(set).sort((a, b) => hhmmToMin(a) - hhmmToMin(b));
 }
 
 /**
  * Compute slot labels "9:00am-9:50am" by pairing each slot_start with the
- * matching slot_end. If a slot_start has no paired slot_end, fall back
- * to a 50-minute window.
+ * matching slot_end.
  */
 function collectSlotLabels(assignments) {
   const pairs = new Map(); // start -> end
@@ -134,7 +128,7 @@ function collectSlotLabels(assignments) {
 
 /**
  * Find the year-sem in fixed display order intersected with actually-used
- * year-sems. Defensive append for any off-order year-sem at the end.
+ * year-sems.
  */
 function deriveYearSemOrder(assignments) {
   const present = new Set(assignments.map((a) => a.year_sem));
@@ -146,17 +140,9 @@ function deriveYearSemOrder(assignments) {
 }
 
 /**
- * Locate the BREAK boundary. We define it as the largest gap (>= 30
- * minutes) between consecutive used slots. If no qualifying gap is
- * found we fall back to the configured break_start. If we still have
- * nothing we assume there is no break in this document.
- *
- * Returns the minute mark of the start of the AFTERNOON section
- * (i.e., the first slot after the break). This way, `slot.start < X`
- * cleanly partitions the schedule into morning / afternoon halves.
+ * Locate the BREAK boundary.
  */
 function findBreakStart(assignments, config) {
-  // Build a slot-start -> slot-end map so we can measure slot widths.
   const endOf = new Map();
   for (const a of assignments) {
     if (a.slot_start != null && a.slot_end != null) {
@@ -165,22 +151,20 @@ function findBreakStart(assignments, config) {
   }
   const slots = collectSlotColumns(assignments);
   if (slots.length >= 2) {
-    let bestGap = 30 - 1; // strictly > this => gap >= 30min
+    let bestGap = 30 - 1;
     let bestStart = null;
     for (let i = 0; i < slots.length - 1; i++) {
       const thisEnd = endOf.get(slots[i]) != null ? endOf.get(slots[i]) : slots[i] + 50;
-      const gap = slots[i + 1] - thisEnd;
+      const gap = hhmmToMin(slots[i + 1]) - hhmmToMin(thisEnd);
       if (gap > bestGap) {
         bestGap = gap;
-        // Afternoon begins at the start of the first slot after the gap.
         bestStart = slots[i + 1];
       }
     }
-    if (bestStart != null) return bestStart;
+    if (bestStart != null) return hhmmToMin(bestStart);
   }
   if (config && config.break_start) {
-    const m = hhmmToMin(config.break_start);
-    return m;
+    return hhmmToMin(config.break_start);
   }
   return null;
 }
@@ -195,7 +179,7 @@ function cellLinesFor(a) {
   return [course, teacher, room].filter(Boolean);
 }
 
-/** Render the cell paragraphs (one per line) with bold course / room. */
+/** Render the cell paragraphs (one per line) with bold course. */
 function buildCellParagraphs(lines, opts = {}) {
   const { boldCourse = true, center = true } = opts;
   return lines.map((line, i) => new Paragraph({
@@ -205,7 +189,7 @@ function buildCellParagraphs(lines, opts = {}) {
       new TextRun({
         text: line,
         bold: i === 0 && boldCourse,
-        size: 18, // 9pt — matches the small dense look of the reference
+        size: 18, // 9pt
       }),
     ],
   }));
@@ -223,7 +207,6 @@ function emptyCellParagraphs() {
 // Table cells
 // ---------------------------------------------------------------------------
 
-/** A bordered, lightly-shaded cell holding an array of paragraphs. */
 function makeCell({
   paragraphs = [],
   fill = null,
@@ -250,8 +233,6 @@ function makeCell({
   if (vMerge) cellOptions.vMerge = vMerge;
   if (gridSpan) cellOptions.columnSpan = gridSpan;
   if (textDirection) {
-    // The docx package accepts a `textDirection` option on TableCell.
-    // For a vertical BREAK label we use 'tbRl' (top-to-bottom, right-to-left).
     cellOptions.textDirection = textDirection;
   }
   return new TableCell(cellOptions);
@@ -269,9 +250,7 @@ const cellBorders = {
   right: BORDER_STYLE,
 };
 
-/** Apply standard borders to a TableCell in place. */
 function withBorders(cell) {
-  // TableCell in docx 9.x exposes borders on the options object.
   cell.options.borders = cellBorders;
   return cell;
 }
@@ -280,34 +259,6 @@ function withBorders(cell) {
 // Header (3-row university block)
 // ---------------------------------------------------------------------------
 
-function buildHeaderBlock(header) {
-  const rows = [];
-  rows.push(
-    new TableRow({
-      children: [withBorders(new TableCell({
-        children: [new Paragraph({
-          alignment: AlignmentType.CENTER,
-          children: [new TextRun({
-            text: header.university || '',
-            bold: true,
-            size: 32, // 16pt
-            color: 'FFFFFF',
-          })],
-        })],
-        shading: { type: ShadingType.SOLID, color: 'auto', fill: '1E3A8A' },
-        columnSpan: 1, // overridden by caller via gridSpan
-      }))],
-    })
-  );
-  // Two empty placeholder rows are not needed — we return 3 rows that
-  // the caller wraps in a separate 1-col table for visual weight.
-  return rows;
-}
-
-/**
- * Top-of-document table: 3 stacked rows (university / department /
- * semester), each spanning the full width.
- */
 function buildUniversityHeaderTable(header) {
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -336,7 +287,7 @@ function buildUniversityHeaderTable(header) {
             alignment: AlignmentType.CENTER,
             spacing: { before: 60, after: 60 },
             children: [new TextRun({
-              text: header.department || 'Department',
+              text: header.department ? `Department of ${header.department}` : 'Department',
               bold: true,
               size: 26,
               color: 'FFFFFF',
@@ -353,7 +304,7 @@ function buildUniversityHeaderTable(header) {
             spacing: { before: 60, after: 60 },
             children: [new TextRun({
               text: header.semester
-                ? `Class Routine — ${header.semester}`
+                ? `Tentative Class Routine: ${header.semester}`
                 : 'Class Routine',
               italics: true,
               size: 24,
@@ -370,24 +321,11 @@ function buildUniversityHeaderTable(header) {
 // Routine grid table
 // ---------------------------------------------------------------------------
 
-/**
- * Build the big grid table.
- *
- * Columns:
- *   [Day] [Year-Sem] [slot 1] [slot 2] ... [BREAK] ... [slot N]
- *
- * Header rows:
- *   row 1: empty | empty | morning-slot-1 | ... | morning-slot-K | BREAK | afternoon-slot-1 | ... | afternoon-slot-N
- *   row 2: "Day" | "Year-Sem" | (merged with row 1)
- *
- * For each day, the day label + N year-sem sub-rows are emitted.
- */
 function buildRoutineTable({ assignments, config, days }) {
   const slotCols = collectSlotLabels(assignments);
   const breakStart = findBreakStart(assignments, config);
   const yearSemOrder = deriveYearSemOrder(assignments);
 
-  // Partition slot columns into morning / afternoon by the break start.
   let morningEndIdx = slotCols.length;
   if (breakStart != null) {
     morningEndIdx = slotCols.findIndex((s) => s.start >= breakStart);
@@ -397,8 +335,6 @@ function buildRoutineTable({ assignments, config, days }) {
   const afternoonCols = slotCols.slice(morningEndIdx);
   const hasBreak = morningCols.length > 0 && afternoonCols.length > 0;
 
-  // Total column count:
-  //   1 (Day) + 1 (Year-Sem) + morningCols + (1 if hasBreak else 0) + afternoonCols
   const totalCols = 2 + morningCols.length + (hasBreak ? 1 : 0) + afternoonCols.length;
   const gridIndex = indexAssignments(assignments);
 
@@ -464,18 +400,7 @@ function buildRoutineTable({ assignments, config, days }) {
     children: headerRow1Cells,
   }));
 
-  // --- header row 2: only present when there's no rowSpan on the slot
-  //     cells (we kept them as a single row, so this is empty). docx
-  //     requires every row to have exactly totalCols cells though, so
-  //     emit a hidden spacer row with empty cells.
   const spacerCells = [];
-  // Day + Yr-Sm cells are absorbed by rowSpan=2 above, so this row
-  // contains only the slot cells. We also need to honor BREAK rowSpan.
-  // The cleanest pattern is: build this row with the same per-column
-  // entries minus the day/year-sem cells, and set vMerge: continue
-  // for the BREAK column (already handled). For slot cells we use
-  // vMerge: continue on every column after the first 2.
-  // Day + Yr-Sm: rowSpan already covers both header rows.
   for (let c = 0; c < totalCols - 2; c++) {
     spacerCells.push(withBorders(new TableCell({
       vMerge: 'continue',
@@ -483,8 +408,6 @@ function buildRoutineTable({ assignments, config, days }) {
       children: [new Paragraph({ children: [new TextRun({ text: '' })] })],
     })));
   }
-  // Only push the spacer row if we have at least 1 slot cell; if not,
-  // docx will complain about column count.
   if (totalCols - 2 > 0) {
     rows.push(new TableRow({
       tableHeader: true,
@@ -495,7 +418,6 @@ function buildRoutineTable({ assignments, config, days }) {
   // --- body rows: one block per day ---
   for (const day of days) {
     if (yearSemOrder.length === 0) {
-      // No year-sem at all — emit a single empty row per day.
       const cells = [];
       cells.push(withBorders(new TableCell({
         width: { size: 8, type: WidthType.PERCENTAGE },
@@ -519,7 +441,6 @@ function buildRoutineTable({ assignments, config, days }) {
     const blockSize = yearSemOrder.length;
     yearSemOrder.forEach((ys, ysIdx) => {
       const cells = [];
-      // Day cell — only the first year-sem of the block carries it.
       if (ysIdx === 0) {
         cells.push(withBorders(new TableCell({
           width: { size: 8, type: WidthType.PERCENTAGE },
@@ -532,7 +453,6 @@ function buildRoutineTable({ assignments, config, days }) {
           })],
         })));
       }
-      // Year-sem cell.
       cells.push(withBorders(new TableCell({
         width: { size: 7, type: WidthType.PERCENTAGE },
         shading: { type: ShadingType.SOLID, color: 'auto', fill: 'F8FAFC' },
@@ -541,7 +461,6 @@ function buildRoutineTable({ assignments, config, days }) {
           children: [new TextRun({ text: ys, bold: true, size: 18 })],
         })],
       })));
-      // Morning slot cells.
       for (const s of morningCols) {
         const items = gridIndex.get(`${day}|${s.start}`) || [];
         const match = items.find((it) => it.year_sem === ys);
@@ -555,7 +474,6 @@ function buildRoutineTable({ assignments, config, days }) {
           })));
         }
       }
-      // BREAK cell (vertical, spans all 6 year-sem sub-rows per day).
       if (hasBreak) {
         if (ysIdx === 0) {
           cells.push(withBorders(new TableCell({
@@ -571,7 +489,6 @@ function buildRoutineTable({ assignments, config, days }) {
           })));
         }
       }
-      // Afternoon slot cells.
       for (const s of afternoonCols) {
         const items = gridIndex.get(`${day}|${s.start}`) || [];
         const match = items.find((it) => it.year_sem === ys);
@@ -596,7 +513,7 @@ function buildRoutineTable({ assignments, config, days }) {
 }
 
 // ---------------------------------------------------------------------------
-// Teacher legend
+// Teacher legend (2-column side-by-side)
 // ---------------------------------------------------------------------------
 
 function buildTeacherLegendTable(teachers) {
@@ -604,42 +521,66 @@ function buildTeacherLegendTable(teachers) {
   const sorted = [...teachers].sort((a, b) =>
     String(a.abbreviation || '').localeCompare(String(b.abbreviation || ''))
   );
+
+  const half = Math.ceil(sorted.length / 2);
+  const leftList = sorted.slice(0, half);
+  const rightList = sorted.slice(half);
+
   const headerCell = (text, widthPct) => withBorders(new TableCell({
     width: { size: widthPct, type: WidthType.PERCENTAGE },
-    shading: { type: ShadingType.SOLID, color: 'auto', fill: '1E3A8A' },
+    shading: { type: ShadingType.SOLID, color: 'auto', fill: 'F1F5F9' },
     children: [new Paragraph({
       alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text, bold: true, color: 'FFFFFF', size: 20 })],
+      children: [new TextRun({ text, bold: true, color: '000000', size: 18 })],
     })],
   }));
+
   const rows = [
     new TableRow({
       tableHeader: true,
       children: [
-        headerCell('Abbr', 12),
-        headerCell('Full Name', 38),
-        headerCell('Designation', 30),
-        headerCell('Department', 20),
+        headerCell('Name', 25),
+        headerCell('Designation', 17),
+        headerCell('Department', 8),
+        headerCell('Name', 25),
+        headerCell('Designation', 17),
+        headerCell('Department', 8),
       ],
     }),
   ];
-  sorted.forEach((t, i) => {
-    const fill = i % 2 === 0 ? 'FFFFFF' : 'F1F5F9';
-    const cell = (text, bold) => withBorders(new TableCell({
-      shading: { type: ShadingType.SOLID, color: 'auto', fill },
+
+  for (let i = 0; i < half; i++) {
+    const left = leftList[i];
+    const right = rightList[i];
+
+    const cell = (text, bold, center = false) => withBorders(new TableCell({
+      shading: { type: ShadingType.SOLID, color: 'auto', fill: 'FFFFFF' },
       children: [new Paragraph({
-        children: [new TextRun({ text: String(text || ''), bold, size: 18 })],
+        alignment: center ? AlignmentType.CENTER : AlignmentType.LEFT,
+        children: [new TextRun({ text: String(text || ''), bold, size: 16 })],
       })],
     }));
+
+    const leftName = left ? `${left.full_name || ''} (${left.abbreviation || ''})` : '';
+    const leftDesignation = left ? left.designation : '';
+    const leftDept = left ? left.department : '';
+
+    const rightName = right ? `${right.full_name || ''} (${right.abbreviation || ''})` : '';
+    const rightDesignation = right ? right.designation : '';
+    const rightDept = right ? right.department : '';
+
     rows.push(new TableRow({
       children: [
-        cell(t.abbreviation, true),
-        cell(t.full_name, false),
-        cell(t.designation, false),
-        cell(t.department, false),
+        cell(leftName, false),
+        cell(leftDesignation, false),
+        cell(leftDept, false, true),
+        cell(rightName, false),
+        cell(rightDesignation, false),
+        cell(rightDept, false, true),
       ],
     }));
-  });
+  }
+
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows,
@@ -650,18 +591,7 @@ function buildTeacherLegendTable(teachers) {
 // Public API
 // ---------------------------------------------------------------------------
 
-/**
- * Render a routine as a Word document Buffer.
- *
- * @param {Object} input
- * @param {Array}  input.assignments — schedule rows from /api/batches/:id/schedule
- * @param {Object} input.header      — { university, department, semester }
- * @param {Array}  input.teachers    — [{ full_name, abbreviation, designation, department }]
- * @param {Object} [input.config]    — { working_days, class_start, class_end, break_start, break_end }
- * @param {Array}  [input.days]      — override day order (default: SUN-THU)
- * @returns {Promise<Buffer>}
- */
-async function generateRoutineDocx(input) {
+async function generateRoutinePdf(input) {
   const {
     assignments = [],
     header = {},
@@ -681,7 +611,7 @@ async function generateRoutineDocx(input) {
     children: [],
   }));
 
-  // 3. The routine grid (or an empty-state notice if no assignments).
+  // 3. The routine grid (or empty notice).
   if (assignments.length === 0) {
     sections.push(new Paragraph({
       alignment: AlignmentType.CENTER,
@@ -733,14 +663,12 @@ async function generateRoutineDocx(input) {
     }],
   });
 
-  // docx 9.x: Packer.toBuffer returns a Node Buffer.
   const buffer = await Packer.toBuffer(doc);
   return buffer;
 }
 
 module.exports = {
-  generateRoutineDocx,
-  // exported for tests
+  generateRoutinePdf,
   _internal: {
     fmtTime,
     fmtRange,

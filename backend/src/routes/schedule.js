@@ -138,10 +138,11 @@ router.post('/:id/generate', async (req, res, next) => {
     try {
       assignments = solve(
         {
-          config: loaded.config,
-          courses: loaded.courses,
-          rooms: loaded.rooms,
-          room_preference: loaded.room_preference,
+          config:                 loaded.config,
+          courses:                loaded.courses,
+          rooms:                  loaded.rooms,
+          room_preference:        loaded.room_preference,
+          day_preference:         loaded.day_preference || [],   // NEW — soft day bias
           teacher_unavailability: loaded.teacher_unavailability,
         },
         {

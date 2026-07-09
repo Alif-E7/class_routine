@@ -3,7 +3,7 @@
 /**
  * Excel → structured JSON parser using SheetJS (`xlsx`).
  *
- * The uploaded .xlsx has exactly 7 data sheets. Real-world files often
+ * The uploaded .xlsx has exactly 9 data sheets. Real-world files often
  * have one or more title / note rows above the header row, so this
  * parser:
  *   1. For each expected sheet, walks row-by-row and finds the row that
@@ -17,9 +17,11 @@
  *     filename,                              // string
  *     teachers:       Row[],                 // keyed by canonical names
  *     courses:        Row[],
+ *     year_sem:       Row[],                 // NEW: master lookup
  *     rooms:          Row[],
  *     credit_rules:   Row[],
  *     room_preference:Row[],
+ *     day_preference: Row[],                 // NEW: day bias weights
  *     teacher_unavailability: Row[],
  *     config:         { key: value, ... }    // Config is a key-value table
  *   }
@@ -44,6 +46,11 @@ const CANONICAL = {
   dept:           'dept',
   year_sem:       'year_sem',
   teacher_abbr:   'teacher_abbr',
+  // Year_Sem (NEW)
+  year:           'year',
+  semester:       'semester',
+  group_code:     'group_code',
+  is_active:      'is_active',
   // Rooms
   room_id:        'room_id',
   room_name:      'room_name',
@@ -54,8 +61,11 @@ const CANONICAL = {
   // Room_Preference
   year_group:     'year_group',
   weight_percent: 'weight_percent',
-  // Teacher_Unavailability
+  // Day_Preference (NEW)
   day:            'day',
+  class_type:     'class_type',
+  note:           'note',
+  // Teacher_Unavailability
   start_time:     'start_time',
   end_time:       'end_time',
   // Config (key/value)
@@ -64,8 +74,6 @@ const CANONICAL = {
 };
 
 // Aliases (case-insensitive, whitespace-stripped) → canonical.
-// Built so a file with a stray capital letter or different ordering
-// still parses correctly.
 const ALIASES = buildAliasMap();
 
 function buildAliasMap() {
@@ -79,19 +87,26 @@ function buildAliasMap() {
   }
   // Friendly aliases from the build prompt.
   map['teacher abbreviation'] = 'abbreviation';
-  map['teacher name']        = 'full_name';
-  map['course code']         = 'course_code';
-  map['course name']         = 'course_name';
-  map['room name']           = 'room_name';
-  map['room id']             = 'room_id';
-  map['classes per week']    = 'classes_per_week';
-  map['duration minutes']    = 'duration_minutes';
-  map['weight percent']      = 'weight_percent';
-  map['start time']          = 'start_time';
-  map['end time']            = 'end_time';
-  map['year sem']            = 'year_sem';
-  map['year_sem']            = 'year_sem';
-  map['year-sem']            = 'year_sem';
+  map['teacher name']         = 'full_name';
+  map['course code']          = 'course_code';
+  map['course name']          = 'course_name';
+  map['room name']            = 'room_name';
+  map['room id']              = 'room_id';
+  map['classes per week']     = 'classes_per_week';
+  map['duration minutes']     = 'duration_minutes';
+  map['weight percent']       = 'weight_percent';
+  map['start time']           = 'start_time';
+  map['end time']             = 'end_time';
+  map['year sem']             = 'year_sem';
+  map['year_sem']             = 'year_sem';
+  map['year-sem']             = 'year_sem';
+  map['group code']           = 'group_code';
+  map['is active']            = 'is_active';
+  map['isactive']             = 'is_active';
+  map['class type']           = 'class_type';
+  map['classtype']            = 'class_type';
+  map['type (lab | theory)']  = 'class_type';
+  map['type (lab|theory)']    = 'class_type';
   return map;
 }
 
@@ -102,13 +117,14 @@ function normalizeKey(raw) {
 }
 
 // Columns we use to detect the header row of each sheet.
-// If any of these is present in a row, we treat that row as the header.
 const SHEET_HINTS = {
   Teachers:               ['abbreviation', 'full_name', 'designation'],
   Courses:                ['course_code', 'credit', 'year_sem'],
+  Year_Sem:               ['year_sem', 'group_code', 'is_active'],
   Rooms:                  ['room_id', 'room_name', 'type'],
   Credit_Rules:           ['credit', 'classes_per_week', 'duration_minutes'],
   Room_Preference:        ['room_id', 'year_group', 'weight_percent'],
+  Day_Preference:         ['day', 'class_type', 'weight_percent'],
   Teacher_Unavailability: ['teacher_abbr', 'start_time', 'end_time'],
   Config:                 ['key', 'value'],
 };
@@ -125,7 +141,6 @@ function findHeaderRow(rows, sheetName) {
   const hints = SHEET_HINTS[sheetName] || [];
   for (let i = 0; i < rows.length; i++) {
     const cells = (rows[i] || []).map(c => (c == null ? '' : String(c).trim().toLowerCase()));
-    // Count how many of the sheet's hint columns appear in this row.
     let hits = 0;
     for (const hint of hints) {
       if (cells.includes(hint) || cells.includes(hint.replace(/_/g, ' '))) hits++;
@@ -146,10 +161,6 @@ function isBlankRow(row) {
 function rowsToObjects(rows, headerIndex) {
   const header = (rows[headerIndex] || []).map(c => (c == null ? '' : String(c).trim()));
   const out = [];
-  // Walk rows below the header. The FIRST fully-blank row marks the
-  // end of the data block; anything after it (e.g. user notes like
-  // "Note: enter periods in HH:MM 24-hour format") is ignored instead
-  // of being mistaken for a real data row.
   for (let i = headerIndex + 1; i < rows.length; i++) {
     const row = rows[i] || [];
     if (isBlankRow(row)) break;
@@ -164,13 +175,75 @@ function rowsToObjects(rows, headerIndex) {
 }
 
 function parseConfigRows(rows) {
-  // Config is a 2-column key/value table. Walk until the first
-  // fully-blank row, then stop — notes after a blank line are not
-  // valid config keys.
   const out = {};
   for (const r of rows) {
     if (!r.key) continue;
     out[String(r.key).trim()] = r.value == null ? '' : String(r.value).trim();
+  }
+  return out;
+}
+
+/**
+ * Auto-complement Day_Preference rows.
+ *
+ * The Excel file only requires Lab weights as input; Theory = 100 - Lab.
+ * This function:
+ *   1. Accepts whatever rows came from the sheet (may have both Lab and
+ *      Theory rows, or only Lab rows).
+ *   2. Ensures every day that has a Lab row also has a Theory row
+ *      (derived as 100 - Lab%).
+ *   3. Normalises class_type casing to 'Lab' / 'Theory'.
+ */
+function complementDayPreference(rows) {
+  // Normalise casing first.
+  const normalised = rows.map(r => ({
+    ...r,
+    class_type: r.class_type
+      ? (String(r.class_type).trim().toLowerCase() === 'lab' ? 'Lab' : 'Theory')
+      : null,
+    weight_percent: r.weight_percent != null ? String(r.weight_percent).trim() : null,
+  }));
+
+  // Index by day → { Lab: row, Theory: row }
+  const byDay = new Map();
+  for (const r of normalised) {
+    if (!r.day || !r.class_type) continue;
+    const d = String(r.day).toUpperCase().trim();
+    if (!byDay.has(d)) byDay.set(d, {});
+    byDay.get(d)[r.class_type] = r;
+  }
+
+  // Derive missing Theory rows from Lab rows (and vice versa as fallback).
+  const out = [];
+  for (const [d, types] of byDay.entries()) {
+    const labRow = types['Lab'];
+    const theoryRow = types['Theory'];
+
+    if (labRow) {
+      out.push(labRow);
+      if (!theoryRow) {
+        const labW = Number(labRow.weight_percent);
+        const derivedW = Number.isFinite(labW) ? 100 - labW : 50;
+        out.push({
+          ...labRow,
+          class_type: 'Theory',
+          weight_percent: String(derivedW),
+          note: 'auto-complement',
+        });
+      } else {
+        out.push(theoryRow);
+      }
+    } else if (theoryRow) {
+      out.push(theoryRow);
+      const thW = Number(theoryRow.weight_percent);
+      const derivedW = Number.isFinite(thW) ? 100 - thW : 50;
+      out.push({
+        ...theoryRow,
+        class_type: 'Lab',
+        weight_percent: String(derivedW),
+        note: 'auto-complement',
+      });
+    }
   }
   return out;
 }
@@ -184,8 +257,10 @@ function parseWorkbook(buffer, filename) {
   }
 
   const sheetNames = workbook.SheetNames;
-  const required = ['Teachers', 'Courses', 'Rooms', 'Credit_Rules',
-                    'Room_Preference', 'Teacher_Unavailability', 'Config'];
+  const required = [
+    'Teachers', 'Courses', 'Year_Sem', 'Rooms', 'Credit_Rules',
+    'Room_Preference', 'Day_Preference', 'Teacher_Unavailability', 'Config',
+  ];
   const missing = required.filter(n => !sheetNames.includes(n));
   if (missing.length > 0) {
     throw new ParseError(
@@ -207,10 +282,14 @@ function parseWorkbook(buffer, filename) {
       );
     }
     const objs = rowsToObjects(rows, headerIdx);
+
     if (sheetName === 'Config') {
       result.config = parseConfigRows(objs);
+    } else if (sheetName === 'Day_Preference') {
+      // Auto-complement Lab ↔ Theory before storing.
+      result.day_preference = complementDayPreference(objs);
     } else {
-      // Map sheet name → camelCase key on the result object.
+      // Map sheet name → snake_case key on the result object.
       const key = sheetName.toLowerCase();
       result[key] = objs;
     }
@@ -219,4 +298,11 @@ function parseWorkbook(buffer, filename) {
   return result;
 }
 
-module.exports = { parseWorkbook, ParseError, normalizeKey, findHeaderRow, CANONICAL };
+module.exports = {
+  parseWorkbook,
+  ParseError,
+  normalizeKey,
+  findHeaderRow,
+  CANONICAL,
+  complementDayPreference,
+};

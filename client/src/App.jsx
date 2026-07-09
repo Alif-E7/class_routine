@@ -15,9 +15,10 @@ function App() {
       <Routes>
         {/* Login page (no layout) */}
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/admin" element={<Navigate to="/history" replace />} />
 
         {/* App routes — share the Layout (TopNav + scrollable main) */}
-        <Route element={<Layout />}>
+        <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<Navigate to="/history" replace />} />
           <Route path="/upload" element={<UploadPage />} />
           <Route path="/history" element={<HistoryPage />} />

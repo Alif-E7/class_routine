@@ -31,15 +31,26 @@ const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU'];
 // Fixed row order, per reference image
 const YEAR_SEM_ORDER = ['4-1', '3-2', '2-2', '2-1', '1-1'];
 
-// Format HH:MM:SS or HH:MM as "9:00am" / "1:50pm"
+// Format HH:MM:SS, HH:MM, or numeric minutes-since-midnight as "9:00am" / "1:50pm"
 function fmtTime(t) {
-  if (!t) return '';
-  const [hStr, mStr] = String(t).split(':');
-  const h = Number(hStr);
-  const m = Number(mStr);
-  const ampm = h < 12 ? 'am' : 'pm';
-  const hr = h === 0 ? 12 : h > 12 ? h - 12 : h;
-  return `${hr}:${String(m).padStart(2, '0')}${ampm}`;
+  if (t === null || t === undefined || t === '') return '';
+  let m;
+  if (typeof t === 'string' && t.includes(':')) {
+    const parts = t.split(':');
+    m = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+  } else if (typeof t === 'number') {
+    m = t;
+  } else {
+    const parsed = parseInt(String(t), 10);
+    if (!Number.isNaN(parsed)) m = parsed;
+    else return String(t);
+  }
+  const h24 = Math.floor(m / 60);
+  const mins = m % 60;
+  const ampm = h24 >= 12 ? 'pm' : 'am';
+  let h12 = h24 % 12;
+  if (h12 === 0) h12 = 12;
+  return `${h12}:${String(mins).padStart(2, '0')}${ampm}`;
 }
 
 function slotLabel(start, end) {
@@ -322,49 +333,50 @@ function CellBody({ entry }) {
 
 function TeacherLegend({ teachers }) {
   const sorted = [...teachers].sort((a, b) =>
-    String(a.abbreviation).localeCompare(String(b.abbreviation))
+    String(a.abbreviation || '').localeCompare(String(b.abbreviation || ''))
   );
+  const half = Math.ceil(sorted.length / 2);
+  const leftList = sorted.slice(0, half);
+  const rightList = sorted.slice(half);
+
+  const rows = [];
+  for (let i = 0; i < half; i++) {
+    rows.push({
+      left: leftList[i],
+      right: rightList[i],
+    });
+  }
+
   return (
-    <div className="border-t-2 border-blue-900 bg-slate-50 p-4">
+    <div className="border-t border-slate-300 bg-slate-50 p-4">
       <h3 className="font-bold text-sm mb-3 text-blue-900">Teacher Legend</h3>
       <div className="overflow-x-auto">
-        <table className="w-full text-xs border-collapse">
+        <table className="w-full text-[11px] border-collapse border border-slate-300 bg-white">
           <thead>
-            <tr className="bg-blue-900 text-white">
-              <th className="text-left px-3 py-2 font-semibold border border-blue-950 w-20">
-                Abbreviation
-              </th>
-              <th className="text-left px-3 py-2 font-semibold border border-blue-950">
-                Full Name
-              </th>
-              <th className="text-left px-3 py-2 font-semibold border border-blue-950">
-                Designation
-              </th>
-              <th className="text-left px-3 py-2 font-semibold border border-blue-950">
-                Department
-              </th>
+            <tr className="bg-slate-100 text-slate-900 text-center font-bold">
+              <th className="px-2 py-1.5 border border-slate-300 w-[25%] text-left">Name</th>
+              <th className="px-2 py-1.5 border border-slate-300 w-[17%] text-left">Designation</th>
+              <th className="px-2 py-1.5 border border-slate-300 w-[8%] text-center">Department</th>
+              <th className="px-2 py-1.5 border border-slate-300 w-[25%] text-left">Name</th>
+              <th className="px-2 py-1.5 border border-slate-300 w-[17%] text-left">Designation</th>
+              <th className="px-2 py-1.5 border border-slate-300 w-[8%] text-center">Department</th>
             </tr>
           </thead>
           <tbody>
-            {sorted.map((t, i) => (
-              <tr
-                key={t.abbreviation}
-                className={i % 2 === 0 ? 'bg-white' : 'bg-sky-50'}
-              >
-                <td className="px-3 py-2 font-bold border border-slate-200 text-blue-900">
-                  {t.abbreviation}
-                </td>
-                <td className="px-3 py-2 border border-slate-200 text-slate-700">
-                  {t.full_name}
-                </td>
-                <td className="px-3 py-2 border border-slate-200 text-slate-600 italic">
-                  {t.designation}
-                </td>
-                <td className="px-3 py-2 border border-slate-200 text-slate-600">
-                  {t.department}
-                </td>
-              </tr>
-            ))}
+            {rows.map((row, i) => {
+              const leftName = row.left ? `${row.left.full_name} (${row.left.abbreviation})` : '';
+              const rightName = row.right ? `${row.right.full_name} (${row.right.abbreviation})` : '';
+              return (
+                <tr key={i} className="hover:bg-slate-50 text-slate-800">
+                  <td className="px-2 py-1 border border-slate-300 font-medium">{leftName}</td>
+                  <td className="px-2 py-1 border border-slate-300 text-slate-600">{row.left?.designation || ''}</td>
+                  <td className="px-2 py-1 border border-slate-300 text-center text-slate-600 font-semibold">{row.left?.department || ''}</td>
+                  <td className="px-2 py-1 border border-slate-300 font-medium">{rightName}</td>
+                  <td className="px-2 py-1 border border-slate-300 text-slate-600">{row.right?.designation || ''}</td>
+                  <td className="px-2 py-1 border border-slate-300 text-center text-slate-600 font-semibold">{row.right?.department || ''}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

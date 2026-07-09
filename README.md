@@ -1,171 +1,137 @@
-# Gopalganj Science & Technology University — Class Routine
+# CSE Routine Generator
 
-A full-stack web app that lets an administrator upload an Excel-based class routine
-and renders it as a polished, printable weekly timetable on the homepage.
+A complete full-stack web application designed to automate the creation of collision-free weekly class routines for university departments. It takes an uploaded Excel configuration (detailing teachers, courses, rooms, credit rules, preferences, and unavailability), passes it through a deterministic **Backtracking CSP (Constraint Satisfaction Problem) Solver** written in plain JavaScript, and renders an interactive timetable grid. The generated routine is exportable as a publication-ready PDF document.
 
-## Tech stack
-- **Frontend:** React 19 + Vite + Tailwind CSS 4 + lucide-react
-- **Backend:** Node.js + Express + Prisma (PostgreSQL)
-- **PDF Export:** `libreoffice --headless --convert-to pdf` (DOCX is generated via the `docx` library and converted server-side)
-- **Container:** Docker + docker-compose
+---
 
-> **Note:** PDF export requires [LibreOffice](https://www.libreoffice.org/) installed on the backend host (the
-> container's `Dockerfile.server` adds it). If LibreOffice is missing, the `/api/batches/:id/export.pdf` endpoint
-> returns `501 PDF_UNAVAILABLE`; the `.docx` endpoint still works without it.
+## Tech Stack Overview
 
-## AI assist (optional)
+- **Frontend**: React (Vite), Tailwind CSS, Lucide Icons, Axios, React Hot Toast.
+- **Backend**: Node.js, Express, MySQL (`mysql2` pool).
+- **File Parsing**: SheetJS (`xlsx`) for reading Excel workbooks.
+- **PDF Generation**: `docx` library (programmatic layout construction) converted to PDF via headless `libreoffice`.
+- **AI Integration**: Groq/Gemini API (via OpenAI-compatible chat completions interface) for diagnostic hints, manual edit parsing, and failure explanations.
 
-The backend ships a thin wrapper (`backend/src/services/aiProvider.js`) around the Google Gemini API. It powers two features:
+---
 
-1. **Friendly failure hints** — when the CSP scheduler reports infeasibility, the `/generate` failure handler enriches the response with a short admin-facing paragraph explaining likely causes (room shortage, teacher unavailability, classes-per-week > slots, etc.).
-2. **Ask AI to draft an edit** — `POST /api/batches/:id/edit` takes a free-text prompt like `"please move CSE406 from Sunday 9am to Monday 10am"` and returns a structured proposal `{kind, summary, change?, question?, concerns[]}` that the admin UI can show before the admin confirms any actual change. This endpoint is **advisory only** — it never mutates the schedule; applying the proposal would require a separate admin-only `/apply` endpoint (out of scope for Step 8).
+## System Architecture & Flow
 
-Both features are **opt-in**. The core scheduler does not depend on AI; if `GEMINI_API_KEY` is empty, both features degrade gracefully (the failure endpoint returns the structured error unchanged, and `/edit` returns `503 AI_UNAVAILABLE`).
+```mermaid
+graph TD
+    A[Admin Login] --> B[Upload Excel File]
+    B --> C{Verify & Validate Excel}
+    C -- Errors/Warnings --> D[Validation Panel + Remediation Hints]
+    C -- Clean --> E[Create Upload Batch & Config]
+    E --> F[Generate Routine]
+    F --> G{CSP Backtracking Solver}
+    G -- Infeasible --> H[Ask AI to suggest config changes]
+    G -- Success --> I[View Interactive Routines Grid]
+    I --> J[Ask AI for manual edit proposal]
+    I --> K[Download PDF export]
+```
 
-### Environment variables
+---
 
-Set these in `backend/.env` (gitignored — never commit your real key):
+## Database Architecture (MySQL)
 
+The system uses a relational MySQL database containing the following tables:
+
+1. **`upload_batches`**: Tracks uploaded Excel configurations, validation status, error/warning logs, and timestamps.
+2. **`teachers`**: Stores teacher names, department, designation, and unique abbreviations.
+3. **`courses`**: Stores courses with credit count, year-semester mappings, and derived constraints (durations, sessions per week).
+4. **`rooms`**: List of classrooms and labs.
+5. **`credit_rules`**: Defines the weekly class count and duration based on course credit weight (e.g. 50 mins/slot for theory, 100/150 mins for labs).
+6. **`room_preference`**: Probabilistic room selection weights per year group (Years 1-2 vs. Years 3-4).
+7. **`teacher_unavailability`**: Restricts specific weekdays and timeslots for individual teachers.
+8. **`config`**: Key-value settings containing university header metadata, workdays, class starts/ends, and break times.
+9. **`schedules`**: Stores the computed sessions (course, teacher, room, day, slot start, slot end).
+10. **`users`**: Manages hashed credentials for admin route authentication.
+
+---
+
+## Installation & Local Setup
+
+### 1. Prerequisites
+- **Node.js** (v18+)
+- **MySQL Server**
+- **LibreOffice** (required to compile and stream PDF files on the backend via the command line)
+
+### 2. Database Migration
+Create a MySQL database named `routine_generator` (or matching `DB_NAME` in `.env`) and run the migrations:
 ```bash
-GEMINI_API_KEY=                # leave blank to disable AI assist entirely
-GEMINI_MODEL=gemini-2.5-flash  # default model
-GEMINI_ENDPOINT=https://generativelanguage.googleapis.com/v1beta/models
-GEMINI_TIMEOUT_MS=6000         # per-call timeout
-```
-
-To enable AI assist locally, paste your Gemini API key into `backend/.env` (`GEMINI_API_KEY=...`). The `.env.example` file in `backend/` ships placeholders only — the real key stays in `.env` which is `.gitignore`d.
-
-## Project structure
-```
-.
-├── client/                # React + Vite frontend
-│   └── src/
-│       ├── components/    # TimetableGrid, FilterBar, FileUpload, TopNav, Layout
-│       ├── pages/         # Homepage, Dashboard, RoutineView
-│       ├── api/           # axios client (routines, masters, template)
-│       └── utils/         # constants (DAYS, TIME_SLOTS), colors
-├── server/                # Express API
-│   ├── prisma/            # schema + seed
-│   └── src/
-│       ├── controllers/   # routine, department, semester, upload, template
-│       ├── routes/
-│       ├── services/      # excel, import, routine, validation
-│       └── middleware/
-└── docker-compose.yml
-```
-
-## Excel import format (REQUIRED)
-
-The admin uploads one `.xlsx` file per semester via **Admin Panel → Upload Routine**.
-The workbook **must contain exactly these 7 sheets** (sheet names are case-sensitive).
-
-> Tip: Click **"Download Excel Template"** on the Homepage to get a pre-filled
-> starter file with all sheets, headers, and one sample row.
-
-### Sheet 1 — `Departments`
-| Column | Required | Example |
-|---|---|---|
-| `dept_code` | ✅ | `CSE` |
-| `dept_name` | ✅ | `Computer Science and Engineering` |
-
-### Sheet 2 — `Teachers`
-| Column | Required | Example |
-|---|---|---|
-| `teacher_code` | ✅ | `MF` |
-| `teacher_name` | ✅ | `Md. Ferdous` |
-| `dept_code` | ✅ | `CSE` |
-| `designation` | ⭕ optional | `Lecturer`, `Assistant Professor`, `Associate Professor` |
-
-### Sheet 3 — `Rooms`
-| Column | Required | Example |
-|---|---|---|
-| `room_no` | ✅ | `407`, `411A` |
-| `building` | ⭕ optional | `Main Building` |
-
-### Sheet 4 — `Courses`
-| Column | Required | Example |
-|---|---|---|
-| `course_code` | ✅ | `CSE404` |
-| `course_name` | ✅ | `Computer Architecture` |
-| `credit` | ✅ | `3.0` |
-| `dept_code` | ✅ | `CSE` |
-
-### Sheet 5 — `Sections`
-| Column | Required | Allowed values | Example |
-|---|---|---|---|
-| `dept_code` | ✅ | any declared dept | `CSE` |
-| `year` | ✅ | integer `1`–`4` | `4` |
-| `semester` | ✅ | integer `1` or `2` (1 = odd term, 2 = even term) | `1` |
-
-> A "section" is now identified by the triple `(dept_code, year, semester)` —
-> `batch` and the free-text `section` column have been removed.
->
-> Section label rendered on the timetable:
-> - `dept=CSE, year=4, semester=1` → **`4-1`**
-> - `dept=CSE, year=3, semester=2` → **`3-2`**
-> - `dept=CSE, year=2, semester=2` → **`2-2`**
-
-### Sheet 6 — `TimeSlots`
-The system expects the standard **50-minute** university slots:
-
-| start_time | end_time | Notes |
-|---|---|---|
-| `09:00` | `09:50` | |
-| `09:50` | `10:40` | |
-| `10:40` | `11:30` | |
-| `11:30` | `12:20` | |
-| `12:20` | `13:10` | Lab slot (12:20–2:00pm window) |
-| — | — | **BREAK** (1:10–2:00pm, no entries) |
-| `14:00` | `15:00` | |
-| `15:00` | `16:00` | |
-
-### Sheet 7 — `RoutineEntries`
-| Column | Required | Example / Allowed values |
-|---|---|---|
-| `day` | ✅ | `SUN`, `MON`, `TUE`, `WED`, `THR` (also accepts `THU`/`THURSDAY`) |
-| `dept_code` | ✅ | `CSE` (must match a row in the `Sections` sheet) |
-| `year` | ✅ | `1`–`4` |
-| `semester` | ✅ | `1` (odd term) or `2` (even term) |
-| `course_code` | ✅ | `CSE404` |
-| `teacher_code` | ✅ | `MF` |
-| `room_no` | ✅ | `407` |
-| `start_time` | ✅ | `10:40` |
-| `end_time` | ✅ | `11:30` |
-
-**Validation rules**
-- All `code` fields must match an existing row in their master sheet.
-- Day is normalized: `THU` / `THURSDAY` → `THR`.
-- Rows in the break window (13:10–14:00) are rejected.
-- The whole import runs in a single Prisma transaction — partial failures roll back.
-
-## Running locally
-
-```bash
-# 1. Backend
-cd server
+cd backend
 npm install
-npx prisma migrate dev
-npm run dev          # http://localhost:5000
+npm run migrate
+```
+*Note: This creates the default database structure and seeds the administrator account.*
 
-# 2. Frontend (in another terminal)
+### 3. Environment Variables (`backend/.env`)
+Create a `.env` file inside `backend/` with the following configuration:
+```env
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=cse_admin
+DB_PASSWORD=YourPassword
+DB_NAME=routine_generator
+
+PORT=4000
+SCHEDULER_BUDGET=2000000
+
+# Optional: Groq/Gemini API key for AI assistant features
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL=llama-3.3-70b-versatile
+GROQ_BASE_URL=https://api.groq.com/openai/v1
+GROQ_TIMEOUT_MS=6000
+```
+
+### 4. Running the Development Servers
+Open two terminal windows to launch the client and server locally:
+
+**Start Backend API Server (Port 4000)**:
+```bash
+cd backend
+npm run dev
+```
+
+**Start Vite Frontend Dev Server (Port 5173)**:
+```bash
 cd client
 npm install
-npm run dev          # http://localhost:5173
+npm run dev
 ```
 
-Or with Docker:
-```bash
-docker compose up --build
-```
+---
 
-## Features
-- 7-sheet Excel import with validation
-- Multi-row timetable header (University → Department → Semester)
-- **BREAK column** with vertical "B R E A K" label
-- Auto-sorted sections and inline section labels (e.g. `4-1`, `3-2`, `2-2`)
-- Class cells show **course code, teacher code, room number** stacked
-- Per-course color highlighting (5-color palette, deterministic by hash)
-- Teacher legend at the bottom of every routine
-- PDF export (landscape) via html2canvas + jsPDF
-- Semester / department / year / term filters
-- Empty-state hero header with gradient and download-template CTA
+## Default Administrative Credentials
+
+Access to scheduling, uploading, and exporting routes requires logging in using:
+- **Email**: `admin_cse@gmail.com`
+- **Password**: `12345678`
+
+---
+
+## Deterministic Backtracking CSP Solver
+
+The core routine generator solver (`backend/src/services/scheduler.js`) implements a deterministic Constraint Satisfaction Problem (CSP) backtracking solver:
+
+1. **Variables**: Course sessions derived from credit rules.
+2. **Domains**: Combines valid work days, daily 50-minute slot times, and eligible rooms of correct type (classrooms for theory, labs for practicals).
+3. **Unary Constraints**: Discards domains that overlap with teacher unavailability windows.
+4. **Binary Constraints (Resource Collisions)**: Enforces that:
+   - No teacher is double-booked.
+   - No room is double-booked.
+   - No year-semester group (e.g. `4-1`) is assigned multiple classes in the same slot.
+5. **Heuristics**:
+   - **MRV (Minimum Remaining Values)**: Sorts courses by constraint tightness (higher weekly demand, fewer rooms, more sessions) to schedule hard-to-fit sessions (e.g., long lab slots) first.
+6. **Lookahead Pruning**: Checks remaining weekdays vs. remaining sessions for each course. If the days are fewer than sessions, it backtracks early to prevent searching infeasible subtrees.
+7. **Lab Block Splitting**: Multi-credit lab courses are split into consecutive 50-minute segments. The solver verifies that consecutive blocks on a single day have the room, teacher, and group all free before assigning them.
+
+---
+
+## AI Assistant Layer (LLM Integration)
+
+The application utilizes an LLM (such as Llama 3.3 or Gemini via `GROQ_API_KEY`) behind `aiProvider.js` for presentation and helper duties. **AI is never on the critical path of routing decisions**:
+
+- **Remediation Explanations**: Translates Excel schema errors or warning codes into friendly, actionable advice with a "How do I fix this?" button.
+- **Manual Edit Proposal Parsing**: Translates free-text requests (e.g., *"Move CSE406 to Monday 9:00 AM"*) into validated, structured change suggestions.
+- **Infeasibility Troubleshooting**: Explains why a configuration cannot be solved (e.g. teacher time overload or classroom shortfalls) and suggests options.

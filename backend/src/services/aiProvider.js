@@ -102,8 +102,8 @@ function buildFailurePrompt(schedulingErrorOrArg) {
   lines.push('You are helping a university admin debug a scheduling conflict. ');
   lines.push('You are given exact capacity vs demand numbers per course type. ');
   lines.push('Do NOT give generic advice like "add more rooms" -- instead, state ');
-  lines.push('the exact shortfall using the numbers provided (e.g. "X sessions of ');
-  lines.push('type Y need Z slots but only W are available, a shortfall of V"), ');
+  lines.push('the capacity vs demand using the numbers provided (e.g. "X sessions of ');
+  lines.push('type Y need Z slots and W are available"), ');
   lines.push('and suggest which specific course_codes have suspiciously high or ');
   lines.push('inconsistent credit/duration values compared to others of the same ');
   lines.push('type, if any stand out.');
@@ -404,6 +404,7 @@ async function callGroq(promptText, opts = {}) {
  * line so explainValidator can split the explanation from the
  * suggestion without re-parsing JSON.
  */
+
 function buildValidatorPrompt(issue) {
   const lines = [];
   lines.push('You are helping a university timetable administrator fix a single validation issue');
@@ -435,6 +436,56 @@ function buildValidatorPrompt(issue) {
   lines.push(`Message:  ${issue.message || '(none)'}`);
   return lines.join('\n');
 }
+
+/**
+ * Build the prompt for explainUploadIssues — a holistic analysis of ALL
+ * validation errors and warnings from a single upload attempt.
+ * The model is asked to return strict JSON so the route can surface
+ * per-rule actionable hints in the UI without re-parsing prose.
+ */
+function buildUploadIssuesPrompt(errors, warnings) {
+  const lines = [];
+  lines.push('You are a university timetable assistant helping an administrator fix problems');
+  lines.push('found in an uploaded Excel workbook for a class routine generator.');
+  lines.push('The workbook has 9 sheets: Teachers, Courses, Year_Sem, Rooms, Credit_Rules,');
+  lines.push('Room_Preference, Day_Preference, Teacher_Unavailability, Config.');
+  lines.push('');
+  lines.push('Working days are SUN, MON, TUE, WED, THU (Sunday–Thursday).');
+  lines.push('');
+  lines.push('You will be given a JSON array of validation errors and warnings.');
+  lines.push('Reply with ONLY a single JSON object (no markdown, no commentary) shaped like:');
+  lines.push('{');
+  lines.push('  "summary": "<2-3 sentences summarising the main problems and overall fix strategy>",');
+  lines.push('  "actionable_hints": [');
+  lines.push('    {');
+  lines.push('      "rule": "<V1/V2/…>",');
+  lines.push('      "severity": "error" | "warning",');
+  lines.push('      "fix": "<one concrete sentence: what to open, what to change, exact value>",');
+  lines.push('      "excel_action": "<copy-pasteable Excel formula or step, e.g. =VLOOKUP(B2,Teachers!A:A,1,0)>"');
+  lines.push('    }');
+  lines.push('  ]');
+  lines.push('}');
+  lines.push('');
+  lines.push('Rules:');
+  lines.push('  - Group by rule code — one hint object per unique rule code, even if there');
+  lines.push('    are many rows with that code. Mention the count of affected rows.');
+  lines.push('  - Be specific: reference sheet names, column names, and exact expected values.');
+  lines.push('  - Do NOT invent data. Only use what is provided.');
+  lines.push('  - Fix errors first, then warnings.');
+  lines.push('  - Keep each "fix" under 60 words.');
+  lines.push('');
+
+  const allIssues = [
+    ...errors.map(e => ({ ...e, severity: 'error' })),
+    ...warnings.map(w => ({ ...w, severity: 'warning' })),
+  ];
+  // Limit to 60 issues to stay within token budget.
+  const limited = allIssues.slice(0, 60);
+  lines.push(`Validation issues (${allIssues.length} total, showing ${limited.length}):`);
+  lines.push(JSON.stringify(limited, null, 2));
+  return lines.join('\n');
+}
+
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -543,12 +594,57 @@ async function explainValidator(issue) {
   return { available: true, explanation, board_suggestion: boardSuggestion };
 }
 
+/**
+ * Analyse ALL validation errors and warnings from a single upload attempt
+ * using Groq and return structured, per-rule actionable hints.
+ *
+ * @param {Array} errors   — hard validation failures from validators.validate()
+ * @param {Array} warnings — soft warnings from validators.validate()
+ * @returns {Promise<{
+ *   available: boolean,
+ *   summary: string|null,
+ *   actionable_hints: Array<{rule,severity,fix,excel_action}>|null,
+ *   reason?: string
+ * }>}
+ */
+async function explainUploadIssues(errors, warnings) {
+  if ((!errors || errors.length === 0) && (!warnings || warnings.length === 0)) {
+    return { available: true, summary: null, actionable_hints: [] };
+  }
+  const r = await callGroq(buildUploadIssuesPrompt(errors || [], warnings || []), {
+    temperature: 0.3,
+    maxOutputTokens: 900,
+  });
+  if (!r.available) return { available: false, summary: null, actionable_hints: null, reason: r.reason };
+  if (r.reason)     return { available: true,  summary: null, actionable_hints: null, reason: r.reason };
+
+  const parsed = extractJson(r.text);
+  if (!parsed || typeof parsed !== 'object') {
+    return { available: true, summary: sanitize(r.text), actionable_hints: null, reason: 'invalid_json' };
+  }
+
+  const summary = typeof parsed.summary === 'string' ? parsed.summary.slice(0, 600) : null;
+  const rawHints = Array.isArray(parsed.actionable_hints) ? parsed.actionable_hints : [];
+  const actionable_hints = rawHints
+    .filter(h => h && typeof h === 'object')
+    .map(h => ({
+      rule:         typeof h.rule         === 'string' ? h.rule.slice(0, 10)  : '?',
+      severity:     h.severity === 'warning' ? 'warning' : 'error',
+      fix:          typeof h.fix          === 'string' ? h.fix.slice(0, 300)  : '',
+      excel_action: typeof h.excel_action === 'string' ? h.excel_action.slice(0, 300) : null,
+    }))
+    .slice(0, 20);
+
+  return { available: true, summary, actionable_hints };
+}
+
 module.exports = {
   // public API
   explainFailure,
   explainRoutine,
   parseEditRequest,
   explainValidator,
+  explainUploadIssues,
   isEnabled,
   // exposed for tests
   _internal: {
@@ -556,6 +652,7 @@ module.exports = {
     buildExplainPrompt,
     buildEditPrompt,
     buildValidatorPrompt,
+    buildUploadIssuesPrompt,
     sanitize,
     extractJson,
     normalizeEditProposal,

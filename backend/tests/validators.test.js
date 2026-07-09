@@ -84,8 +84,34 @@ describe('validators — broken workbook fires every rule', () => {
     expect(e.value).toBe('12:00 vs 10:00');
   });
 
+  test('V11 — Courses.year_sem not in Year_Sem sheet', () => {
+    const e = report.errors.find(x => x.code === 'V11');
+    expect(e).toBeDefined();
+    // CSE104 references '2-1' which is not in the broken fixture's Year_Sem.
+    expect(e.value).toBe('2-1');
+  });
+
+  test('V12 — Year_Sem.is_active invalid value', () => {
+    const e = report.errors.find(x => x.code === 'V12');
+    expect(e).toBeDefined();
+    expect(e.value).toBe('Maybe');
+  });
+
+  test('V13 — Day_Preference weights per day not ≈100 (warning)', () => {
+    const w = report.warnings.find(x => x.code === 'V13');
+    expect(w).toBeDefined();
+    // MON: Lab 60 + Theory 50 = 110
+    expect(Number(w.value)).toBeCloseTo(110, 1);
+  });
+
+  test('V14 — Year_Sem.group_code invalid value', () => {
+    const e = report.errors.find(x => x.code === 'V14');
+    expect(e).toBeDefined();
+    expect(e.value).toBe('NOPE');
+  });
+
   test('all rules collected, not just first', () => {
-    // We expect at least 9 distinct error codes (V1..V9).
+    // Expect all known error codes including new V11, V12, V14.
     const codes = new Set(report.errors.map(e => e.code));
     expect(codes.has('V1')).toBe(true);
     expect(codes.has('V2')).toBe(true);
@@ -95,6 +121,9 @@ describe('validators — broken workbook fires every rule', () => {
     expect(codes.has('V6')).toBe(true);
     expect(codes.has('V8')).toBe(true);
     expect(codes.has('V9')).toBe(true);
+    expect(codes.has('V11')).toBe(true);
+    expect(codes.has('V12')).toBe(true);
+    expect(codes.has('V14')).toBe(true);
   });
 });
 

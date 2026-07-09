@@ -29,7 +29,7 @@ const fsp = require('fs/promises');
 const childProcess = require('child_process');
 
 const { getPool } = require('../db/pool');
-const { generateRoutineDocx } = require('../services/docxGenerator');
+const { generateRoutinePdf } = require('../services/PdfGernerator');
 const { normalizeSlotValue } = require('../services/scheduler');
 
 const router = express.Router({ mergeParams: true });
@@ -116,70 +116,6 @@ function sanitizeForFilename(s) {
 function buildFilename(batch, ext) {
   return `routine_${sanitizeForFilename(batch.filename)}_batch${batch.id}.${ext}`;
 }
-
-// ---------------------------------------------------------------------------
-// DOCX endpoint
-// ---------------------------------------------------------------------------
-
-router.get('/:id/export.docx', async (req, res, next) => {
-  const batchId = parseBatchId(req.params.id);
-  if (batchId == null) {
-    return res.status(400).json({
-      success: false,
-      code: 'INVALID_BATCH_ID',
-      message: 'batch id must be a positive integer',
-    });
-  }
-
-  try {
-    const loaded = await loadExportData(batchId);
-    if (loaded.error) {
-      return res.status(loaded.error.status).json({
-        success: false,
-        code: loaded.error.code,
-        message: loaded.error.message,
-        ...(loaded.error.extra || {}),
-      });
-    }
-
-    if (loaded.assignments.length === 0) {
-      return res.status(422).json({
-        success: false,
-        code: 'NO_SCHEDULE',
-        message: 'This batch has no generated schedule. Call POST /api/batches/:id/generate first.',
-      });
-    }
-
-    const days = String(loaded.config.working_days || 'SUN,MON,TUE,WED,THU')
-      .split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
-
-    const buffer = await generateRoutineDocx({
-      assignments: loaded.assignments,
-      header: {
-        university: loaded.config.university || 'University',
-        department: loaded.config.department || 'Department',
-        semester: loaded.config.semester || loaded.batch.semester || '',
-      },
-      teachers: loaded.teachers,
-      config: loaded.config,
-      days,
-    });
-
-    const filename = buildFilename(loaded.batch, 'docx');
-    res.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    );
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${filename}"`
-    );
-    res.setHeader('Content-Length', buffer.length);
-    return res.status(200).send(buffer);
-  } catch (err) {
-    next(err);
-  }
-});
 
 // ---------------------------------------------------------------------------
 // PDF endpoint
@@ -300,7 +236,7 @@ router.get('/:id/export.pdf', async (req, res, next) => {
     const days = String(loaded.config.working_days || 'SUN,MON,TUE,WED,THU')
       .split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
 
-    const docxBuf = await generateRoutineDocx({
+    const docxBuf = await generateRoutinePdf({
       assignments: loaded.assignments,
       header: {
         university: loaded.config.university || 'University',
