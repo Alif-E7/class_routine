@@ -34,6 +34,8 @@
  *   V14  (NEW) Year_Sem.group_code must be '1-2' or '3-4'.
  */
 
+const { normalizeTimeInput } = require('./excelParser');
+
 const VALID_ROOM_TYPES  = ['classroom', 'lab'];
 const VALID_DAYS_UNAVAIL = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 const VALID_GROUP_CODES  = ['1-2', '3-4'];
@@ -46,7 +48,8 @@ function issue(sheet, row, column, code, message, value) {
 
 function timeToMinutes(t) {
   if (!t) return NaN;
-  const m = String(t).trim().match(/^(\d{1,2}):(\d{2})$/);
+  const normalized = normalizeTimeInput(t);
+  const m = String(normalized || t).trim().match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return NaN;
   const h = Number(m[1]);
   const mm = Number(m[2]);

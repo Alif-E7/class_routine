@@ -113,15 +113,39 @@ function normalizeSlotValue(v) {
 function buildAvailableWindows(config, durationMinutes) {
   const cs = parseTime(config.class_start);
   const ce = parseTime(config.class_end);
-  const bs = parseTime(config.break_start);
-  const be = parseTime(config.break_end);
-  if (!(cs < bs && bs < be && be < ce)) {
+  let bs = parseTime(config.break_start);
+  let be = parseTime(config.break_end);
+
+  if (Number.isNaN(cs) || Number.isNaN(ce) || cs >= ce) {
     throw new SchedulingError(
-      'Config time window is invalid: need class_start < break_start < break_end < class_end',
+      'Config class_start and class_end must be valid times with class_start < class_end',
       { config }
     );
   }
+
   const d = 50; // Always partition in 50-minute slots.
+
+  if (Number.isNaN(bs) || Number.isNaN(be) || bs >= be || bs <= cs || be >= ce) {
+    const bd = (be > bs) ? (be - bs) : 60;
+    const totalMinutes = ce - cs;
+    const N = Math.floor((totalMinutes - bd) / d);
+    if (N > 0) {
+      let morningSlotsCount = Math.ceil(N / 2);
+      bs = cs + morningSlotsCount * d;
+      be = bs + bd;
+      while (be > ce && morningSlotsCount > 0) {
+        morningSlotsCount--;
+        bs = cs + morningSlotsCount * d;
+        be = bs + bd;
+      }
+    } else {
+      bs = Math.floor((cs + ce) / 2);
+      be = bs;
+    }
+    // Update config object in-memory so other parts of scheduler can use the calculated values
+    config.break_start = formatTime(bs);
+    config.break_end = formatTime(be);
+  }
   const days = String(config.working_days)
     .split(',')
     .map((s) => s.trim().toUpperCase())
@@ -165,7 +189,7 @@ function buildAvailableWindows(config, durationMinutes) {
  * `morningOnlySet` is a pre-computed Set<course_code> passed in by
  * solve() so the sort doesn't need to recompute it.
  */
-function sortByConstraintTightness(courses, allRooms, unavailabilityByTeacher, morningOnlySet = new Set()) {
+function sortByConstraintTightness(courses, allRooms, unavailabilityByTeacher, morningOnlySet = new Set(), rng = Math.random) {
   const roomCount = (c) => filterByType(allRooms, c).length;
   const unavailCount = (c) =>
     (unavailabilityByTeacher.get(String(c.teacher_abbr)) || []).length;
@@ -174,6 +198,7 @@ function sortByConstraintTightness(courses, allRooms, unavailabilityByTeacher, m
   return courses
     .map((c, idx) => ({
       c, idx,
+      rIdx: rng(),
       roomCount: roomCount(c),
       unavailCount: unavailCount(c),
       weeklyDemand: weeklyDemand(c),
@@ -192,7 +217,7 @@ function sortByConstraintTightness(courses, allRooms, unavailabilityByTeacher, m
         return b.c.derived_classes_per_week - a.c.derived_classes_per_week;
       }
       if (b.unavailCount !== a.unavailCount) return b.unavailCount - a.unavailCount;
-      return a.idx - b.idx;
+      return a.rIdx - b.rIdx; // Random tie-breaker instead of stable input order to toggle course_code-Teacher_abbr
     })
     .map((x) => x.c);
 }
@@ -332,7 +357,8 @@ function solve(input, options = {}) {
     input.courses,
     input.rooms,
     unavailMap,
-    morningOnlyLabCourseSet  // PRIMARY sort key: morning-only labs first
+    morningOnlyLabCourseSet, // PRIMARY sort key: morning-only labs first
+    rng
   );
 
   // ── [FIX-2] Bottleneck report for multi-slot (continuous-block) courses ─
@@ -769,30 +795,32 @@ function solve(input, options = {}) {
     // ── Day ordering with soft Day_Preference bias (S-2) ──────────────
     // Capitalised course type to match Day_Preference class_type values.
     const courseClassType = course.derived_type === 'lab' ? 'Lab' : 'Theory';
-    const days = [...perDay.keys()].sort((a, b) => {
+    const daysData = [...perDay.keys()].map(d => ({ day: d, rIdx: rng() }));
+    const days = daysData.sort((a, b) => {
       // Primary: descending bias weight for the course's class type.
       // Days with no bias entry get weight 0 — they sort last.
-      const biasA = (dayBias[a] && dayBias[a][courseClassType]) || 0;
-      const biasB = (dayBias[b] && dayBias[b][courseClassType]) || 0;
+      const biasA = (dayBias[a.day] && dayBias[a.day][courseClassType]) || 0;
+      const biasB = (dayBias[b.day] && dayBias[b.day][courseClassType]) || 0;
       if (biasB !== biasA) return biasB - biasA; // higher bias first
       // Secondary: more slots → leaves more options for future assignments → earlier (LCV).
-      const diff = perDay.get(b).length - perDay.get(a).length;
+      const diff = perDay.get(b.day).length - perDay.get(a.day).length;
       if (diff !== 0) return diff;
-      // Tertiary: stable working-day order.
-      return workingDays.indexOf(a) - workingDays.indexOf(b);
-    });
+      // Tertiary: random tie-breaker instead of stable working-day order to toggle alternative options
+      return a.rIdx - b.rIdx;
+    }).map(d => d.day);
 
     const out = [];
     for (const day of days) {
-      const dayEntries = perDay.get(day);
+      // Shuffle the time slots to toggle class_time period!
+      const dayEntries = rngShuffle(perDay.get(day));
       for (const { slots, freeRoomIds } of dayEntries) {
         const ranked = rankRoomsByPreference(
           freeRoomIds,
           course,
           weightTable
         );
-        const shuffled = rngShuffleTopN(ranked, 2);
-        for (const roomId of shuffled) {
+        // Try all eligible rooms in preference/randomized order
+        for (const roomId of ranked) {
           out.push({ day, slots, roomId });
         }
       }
@@ -800,11 +828,10 @@ function solve(input, options = {}) {
     return out;
   }
 
-  function rngShuffleTopN(arr, n) {
-    if (!Array.isArray(arr) || arr.length < 2 || n <= 0) return arr;
-    const k = Math.min(n, arr.length - 1);
+  function rngShuffle(arr) {
+    if (!Array.isArray(arr) || arr.length < 2) return arr;
     const out = arr.slice();
-    for (let i = 0; i < k; i += 1) {
+    for (let i = 0; i < out.length; i += 1) {
       const j = i + Math.floor(rng() * (out.length - i));
       if (j !== i) {
         const tmp = out[i];
@@ -812,7 +839,7 @@ function solve(input, options = {}) {
         out[j] = tmp;
       }
     }
-    return out.slice(0, n);
+    return out;
   }
 
   /**
@@ -890,12 +917,13 @@ function solve(input, options = {}) {
     const prefList = (yearGroup && weightTable.get(yearGroup)) || [];
     const prefMap = {};
     for (const p of prefList) prefMap[String(p.room_id)] = Number(p.weight_percent) || 0;
-    return [...roomIds].sort((a, b) => {
-      const wa = prefMap[a] !== undefined ? prefMap[a] : -1;
-      const wb = prefMap[b] !== undefined ? prefMap[b] : -1;
+    const items = [...roomIds].map(id => ({ id, rIdx: rng() }));
+    return items.sort((a, b) => {
+      const wa = prefMap[a.id] !== undefined ? prefMap[a.id] : -1;
+      const wb = prefMap[b.id] !== undefined ? prefMap[b.id] : -1;
       if (wb !== wa) return wb - wa; // higher preference first
-      return String(a).localeCompare(String(b));
-    });
+      return a.rIdx - b.rIdx; // Random tie-breaker to toggle rooms
+    }).map(x => x.id);
   }
 
   function placeCourse(idx) {
@@ -1137,9 +1165,93 @@ function solve(input, options = {}) {
   return assignments;
 }
 
+/**
+ * Calculates a "perfectness" score out of 10 for a given set of assignments.
+ * The score is based on how well the assignments respect soft constraints
+ * (Day Preferences and Room Preferences).
+ */
+function calculateScore(assignments, input) {
+  if (!assignments || assignments.length === 0) return 0;
+  
+  // Rebuild maps for quick lookup
+  const workingDays = String(input.config.working_days || '')
+    .split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+  
+  const dayBias = {};
+  for (const dp of (input.day_preference || [])) {
+    if (!dp.day || !dp.class_type) continue;
+    const d = String(dp.day).toUpperCase().trim();
+    const ct = String(dp.class_type).trim();
+    if (!dayBias[d]) dayBias[d] = {};
+    dayBias[d][ct] = Number(dp.weight_percent) || 0;
+  }
+
+  const weightTable = buildWeightTable(input.room_preference || []);
+  const eligibleRoomsCache = new Map();
+  function getEligibleRooms(course) {
+    if (!eligibleRoomsCache.has(course.course_code)) {
+      eligibleRoomsCache.set(course.course_code, filterByType(input.rooms, course));
+    }
+    return eligibleRoomsCache.get(course.course_code);
+  }
+
+  let totalPoints = 0;
+  let maxPoints = 0;
+
+  for (const a of assignments) {
+    const course = (input.courses || []).find(c => c.course_code === a.course_code);
+    if (!course) continue;
+    
+    const ct = course.derived_type === 'lab' ? 'Lab' : 'Theory';
+
+    // 1. Evaluate Day Preference (max 100 points)
+    let assignedDayWeight = (dayBias[a.day] && dayBias[a.day][ct]) !== undefined ? (dayBias[a.day][ct]) : 0;
+    let maxDayWeight = 0;
+    for (const d of workingDays) {
+      const w = (dayBias[d] && dayBias[d][ct]) || 0;
+      if (w > maxDayWeight) maxDayWeight = w;
+    }
+    // If no preference is defined (max is 0), then any day is perfectly fine.
+    if (maxDayWeight === 0) {
+      totalPoints += 100;
+      maxPoints += 100;
+    } else {
+      // Map the weight back to 0-100 relative to the max possible weight
+      totalPoints += (assignedDayWeight / maxDayWeight) * 100;
+      maxPoints += 100;
+    }
+
+    // 2. Evaluate Room Preference (max 100 points)
+    const prefList = (course.year_group && weightTable.get(course.year_group)) || [];
+    const prefMap = {};
+    for (const p of prefList) prefMap[String(p.room_id)] = Number(p.weight_percent) || 0;
+    const assignedRoomWeight = prefMap[a.room_id] !== undefined ? prefMap[a.room_id] : 0;
+
+    const eligibleRooms = getEligibleRooms(course);
+    let maxRoomWeight = 0;
+    for (const r of eligibleRooms) {
+      const w = prefMap[r.room_id] !== undefined ? prefMap[r.room_id] : 0;
+      if (w > maxRoomWeight) maxRoomWeight = w;
+    }
+    
+    if (maxRoomWeight === 0) {
+      totalPoints += 100;
+      maxPoints += 100;
+    } else {
+      totalPoints += (assignedRoomWeight / maxRoomWeight) * 100;
+      maxPoints += 100;
+    }
+  }
+
+  if (maxPoints === 0) return 10.0;
+  const rawScore = (totalPoints / maxPoints) * 10;
+  return Math.round(rawScore * 10) / 10; // Round to 1 decimal place, e.g. 9.5
+}
+
 module.exports = {
   solve,
   SchedulingError,
+  calculateScore,
   // Exposed for tests:
   IntervalMap,
   buildAvailableWindows,

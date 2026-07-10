@@ -158,6 +158,52 @@ function isBlankRow(row) {
   return true;
 }
 
+function normalizeTimeInput(val) {
+  if (val == null) return null;
+  let s = String(val).trim().toUpperCase();
+  if (s === '') return null;
+
+  // 1. Excel decimal day fraction (between 0 and 1)
+  if (/^0\.\d+$/.test(s) || s === '0' || s === '1') {
+    const num = Number(s);
+    if (num >= 0 && num <= 1) {
+      const totalMinutes = Math.round(num * 24 * 60);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    }
+  }
+
+  // 2. 12h AM/PM format, e.g. "1:10 PM", "9 AM"
+  const ampmMatch = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i);
+  if (ampmMatch) {
+    let hours = Number(ampmMatch[1]);
+    const minutes = ampmMatch[2] ? Number(ampmMatch[2]) : 0;
+    const ampm = ampmMatch[3].toUpperCase();
+    if (ampm === 'PM' && hours < 12) hours += 12;
+    if (ampm === 'AM' && hours === 12) hours = 0;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  }
+
+  // 3. HH:MM or HH:MM:SS format
+  const hhmmMatch = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (hhmmMatch) {
+    const hours = Number(hhmmMatch[1]);
+    const minutes = Number(hhmmMatch[2]);
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  }
+
+  // 4. Plain integer representing hour (e.g. "9" -> "09:00")
+  if (/^\d{1,2}$/.test(s)) {
+    const hours = Number(s);
+    if (hours >= 0 && hours < 24) {
+      return `${String(hours).padStart(2, '0')}:00`;
+    }
+  }
+
+  return s;
+}
+
 function rowsToObjects(rows, headerIndex) {
   const header = (rows[headerIndex] || []).map(c => (c == null ? '' : String(c).trim()));
   const out = [];
@@ -167,7 +213,20 @@ function rowsToObjects(rows, headerIndex) {
     const obj = {};
     for (let c = 0; c < header.length; c++) {
       const canon = normalizeKey(header[c]);
-      if (canon) obj[canon] = row[c] == null ? null : String(row[c]).trim();
+      if (canon) {
+        let val = row[c];
+        if (canon === 'start_time' || canon === 'end_time') {
+          val = normalizeTimeInput(val);
+        }
+        obj[canon] = val == null ? null : String(val).trim();
+      }
+    }
+    // For Config sheet, normalize value based on key
+    if (obj.key && obj.value != null) {
+      const k = String(obj.key).trim();
+      if (k === 'class_start' || k === 'class_end' || k === 'break_start' || k === 'break_end') {
+        obj.value = normalizeTimeInput(obj.value);
+      }
     }
     if (Object.keys(obj).length > 0) out.push(obj);
   }
@@ -182,6 +241,7 @@ function parseConfigRows(rows) {
   }
   return out;
 }
+
 
 /**
  * Auto-complement Day_Preference rows.
@@ -305,4 +365,5 @@ module.exports = {
   findHeaderRow,
   CANONICAL,
   complementDayPreference,
+  normalizeTimeInput,
 };

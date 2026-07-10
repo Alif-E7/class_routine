@@ -31,6 +31,7 @@ const childProcess = require('child_process');
 const { getPool } = require('../db/pool');
 const { generateRoutinePdf } = require('../services/PdfGernerator');
 const { normalizeSlotValue } = require('../services/scheduler');
+const { normalizeTimeInput } = require('../services/excelParser');
 
 const router = express.Router({ mergeParams: true });
 
@@ -77,7 +78,13 @@ async function loadExportData(batchId) {
     [batchId]
   );
   const config = {};
-  for (const r of configRows) config[String(r.key).trim()] = r.value;
+  const TIME_CONFIG_KEYS = new Set(['class_start', 'class_end', 'break_start', 'break_end']);
+  for (const r of configRows) {
+    const key = String(r.key).trim();
+    config[key] = TIME_CONFIG_KEYS.has(key)
+      ? (normalizeTimeInput(r.value) || String(r.value).trim())
+      : r.value;
+  }
 
   const [assignmentRows] = await pool.query(
     `SELECT course_code, teacher_abbr, room_id, day,

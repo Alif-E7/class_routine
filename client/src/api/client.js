@@ -70,6 +70,8 @@ export const batchesApi = {
   list: () => api.get('/batches'),
   detail: (batchId) => api.get(`/batches/${batchId}`),
   getTeachers: (batchId) => api.get(`/batches/${batchId}/teachers`),
+  getWorkbook: (batchId) => api.get(`/batches/${batchId}/workbook`),
+  updateWorkbook: (batchId, workbook) => api.post(`/batches/${batchId}/workbook`, { workbook }),
   /**
    * Hard-delete a batch. Cascades to teachers/courses/rooms/credit_rules/
    * room_preference/teacher_unavailability/config/schedules.
@@ -148,10 +150,11 @@ export const editApi = {
   /**
    * @param {number} batchId
    * @param {string} prompt  free-text request, e.g. "move CSE406 from SUN 9am to MON 10am"
-   * @returns {Promise<{proposal: {kind, summary, change, question, concerns}}>}
+   * @param {number} [score] optional routine score out of 10
+   * @param {Array}  [history] optional array of previous messages for chat context
    */
-  askEdit(batchId, prompt) {
-    return api.post(`/batches/${batchId}/edit`, { prompt }).then((res) => ({
+  askEdit(batchId, prompt, score = null, history = []) {
+    return api.post(`/batches/${batchId}/edit`, { prompt, score, history }).then((res) => ({
       proposal: res.data.proposal,
       batchId: res.data.batch_id,
       prompt: res.data.prompt,

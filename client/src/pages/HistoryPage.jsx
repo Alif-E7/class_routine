@@ -173,29 +173,28 @@ const HistoryPage = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {batches.map((b) => {
+              {batches.map((b, index) => {
                 const StatusIcon = STATUS_ICON[b.status] || CheckCircle2;
+                const displayNo = batches.length - index;
                 return (
                   <tr
                     key={b.id}
                     className="hover:bg-sky-50 transition-colors cursor-pointer"
                     onClick={() => (window.location.href = `/batches/${b.id}`)}
                   >
-                    <td className="px-5 py-3 text-slate-500 font-mono">#{b.id}</td>
+                    <td className="px-5 py-3 text-slate-500 font-mono">#{displayNo}</td>
                     <td className="px-5 py-3 font-semibold text-slate-800 truncate max-w-xs">
                       {b.filename}
                     </td>
                     <td className="px-5 py-3 text-slate-600">{b.semester || '—'}</td>
                     <td className="px-5 py-3">
                       <span
-                        className={`inline-flex items-center gap-1.5 text-xs font-semibold border px-2 py-0.5 rounded-full ${
-                          STATUS_STYLES[b.status] || 'bg-slate-50 text-slate-700 border-slate-200'
-                        }`}
+                        className={`inline-flex items-center gap-1.5 text-xs font-semibold border px-2 py-0.5 rounded-full ${STATUS_STYLES[b.status] || 'bg-slate-50 text-slate-700 border-slate-200'
+                          }`}
                       >
                         <StatusIcon
-                          className={`w-3.5 h-3.5 ${
-                            b.status === 'processing' ? 'animate-spin' : ''
-                          }`}
+                          className={`w-3.5 h-3.5 ${b.status === 'processing' ? 'animate-spin' : ''
+                            }`}
                         />
                         {String(b.status || 'unknown').replace(/_/g, ' ')}
                       </span>

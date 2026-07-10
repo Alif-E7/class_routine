@@ -235,7 +235,7 @@ const Homepage = () => {
             <div className="inline-flex items-center gap-2 mb-3 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/15">
               <Waves className="w-3.5 h-3.5 text-cyan-300" />
               <span className="text-[10px] font-semibold tracking-[0.18em] uppercase text-cyan-200">
-                Gopalganj Science & Technology University
+                University Name
               </span>
             </div>
             <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight text-white mb-2 leading-tight">

@@ -26,10 +26,7 @@ import { getCourseColorClass } from '../utils/colors';
  *   - teachers:    array of { abbreviation, full_name, designation, department }
  */
 
-const DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU'];
-
-// Fixed row order, per reference image
-const YEAR_SEM_ORDER = ['4-1', '3-2', '2-2', '2-1', '1-1'];
+// Note: DAYS and YEAR_SEM_ORDER constants removed in favor of dynamic props
 
 // Format HH:MM:SS, HH:MM, or numeric minutes-since-midnight as "9:00am" / "1:50pm"
 function fmtTime(t) {
@@ -61,10 +58,7 @@ function slotLabel(start, end) {
 function partitionByBreak(slots, breakStart) {
   // breakStart is in minutes (e.g. 13*60 = 780). Default to 13:00.
   const cutoff = Number.isFinite(breakStart) ? breakStart : 13 * 60;
-  const toMin = (t) => {
-    const [h, m] = String(t).split(':').map(Number);
-    return h * 60 + m;
-  };
+  const toMin = hmToMin;
   const morning = [];
   const afternoon = [];
   for (const s of slots) {
@@ -75,16 +69,31 @@ function partitionByBreak(slots, breakStart) {
   return { morning, afternoon };
 }
 
-// "HH:MM:SS" -> minutes
 function hmToMin(t) {
-  const [h, m] = String(t).split(':').map(Number);
-  return h * 60 + m;
+  if (t == null) return NaN;
+  if (typeof t === 'number') {
+    if (t > 0 && t < 1) return Math.round(t * 24 * 60);
+    return t;
+  }
+  const s = String(t).trim();
+  if (s.includes(':')) {
+    const parts = s.split(':');
+    return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+  }
+  if (/^0\.\d+$/.test(s)) {
+    return Math.round(Number(s) * 24 * 60);
+  }
+  const parsed = parseInt(s, 10);
+  return Number.isNaN(parsed) ? NaN : parsed;
 }
 
-const RoutineGrid = ({ assignments = [], header, teachers = [] }) => {
+const RoutineGrid = ({ assignments = [], header, teachers = [], config, yearSemList = [], dayList = [] }) => {
+  const daysToRender = dayList.length > 0 ? dayList : ['SUN', 'MON', 'TUE', 'WED', 'THU'];
+  const yearsToRender = yearSemList.length > 0 ? yearSemList : ['4-1', '3-2', '2-2', '2-1', '1-1'];
+
   // Build slot list from data (union of distinct slot_starts, sorted),
   // and detect break by looking for the largest gap (≥40 min).
-  const { daysPresent, slots, dayMap, yearSemSet, breakStart } = useMemo(() => {
+  const { daysPresent, slots, dayMap, yearSemRows, breakStart, breakStartStr, breakEndStr } = useMemo(() => {
     const daySet = new Set();
     const slotMap = new Map(); // key = "HH:MM"
     const ysSet = new Set();
@@ -128,26 +137,40 @@ const RoutineGrid = ({ assignments = [], header, teachers = [] }) => {
 
     // Only treat as a break if gap ≥ 30 minutes.
     let breakStartMin = null;
-    if (gapAfter >= 0 && biggestGap >= 30) {
+    let breakEndMin = null;
+    if (config?.break_start) {
+      breakStartMin = hmToMin(config.break_start);
+      breakEndMin = hmToMin(config.break_end || '14:00');
+    } else if (gapAfter >= 0 && biggestGap >= 30) {
       breakStartMin = hmToMin(sorted[gapAfter].end);
+      breakEndMin = hmToMin(sorted[gapAfter + 1].start);
+    }
+    
+    let breakStartStr = '';
+    let breakEndStr = '';
+    if (breakStartMin !== null) {
+      breakStartStr = fmtTime(breakStartMin);
+      breakEndStr = breakEndMin ? fmtTime(breakEndMin) : '';
+    }
+    
+    const sortedDays = daysToRender.filter((d) => daySet.has(d));
+    const sortedYearSems = yearsToRender.filter((ys) => ysSet.has(ys));
+    
+    // If data has a year-sem outside the canonical order, append it (defensive).
+    for (const ys of ysSet) {
+      if (!sortedYearSems.includes(ys)) sortedYearSems.push(ys);
     }
 
     return {
-      daysPresent: DAYS.filter((d) => daySet.has(d)),
+      daysPresent: sortedDays,
       slots: sorted,
       dayMap: grid,
-      yearSemSet: ysSet,
+      yearSemRows: sortedYearSems,
       breakStart: breakStartMin,
+      breakStartStr,
+      breakEndStr,
     };
-  }, [assignments]);
-
-  // Fixed year-sem ordering, intersected with what actually exists.
-  const yearSemRows = YEAR_SEM_ORDER.filter((ys) => yearSemSet.has(ys));
-
-  // If data has a year-sem outside the canonical order, append it (defensive).
-  for (const ys of yearSemSet) {
-    if (!yearSemRows.includes(ys)) yearSemRows.push(ys);
-  }
+  }, [assignments, daysToRender, yearsToRender]);
 
   // Empty-state
   if (assignments.length === 0 || daysPresent.length === 0) {
@@ -184,15 +207,8 @@ const RoutineGrid = ({ assignments = [], header, teachers = [] }) => {
               colSpan={totalCols}
               className="bg-blue-800 text-white font-semibold text-center py-1.5 text-base border-b border-blue-900"
             >
-              Department of {header?.department || 'Computer Science and Engineering'}
-            </th>
-          </tr>
-          <tr>
-            <th
-              colSpan={totalCols}
-              className="bg-blue-700 text-blue-50 text-center py-1.5 text-sm italic border-b-2 border-blue-900"
-            >
-              Tentative Class Routine: {header?.semester || ''}
+              Department of {header?.department || 'Department'}
+              {header?.semester ? ` (${header.semester})` : ''}
             </th>
           </tr>
           <tr>
@@ -219,10 +235,10 @@ const RoutineGrid = ({ assignments = [], header, teachers = [] }) => {
             {hasBreak && (
               <th
                 rowSpan={2}
-                className="bg-yellow-300 text-blue-950 font-extrabold text-center border-l border-r border-yellow-500 w-8 text-xs"
-                style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}
+                className="bg-yellow-300 text-blue-950 font-bold text-center border-l border-r border-yellow-500 w-8 text-xs"
+                style={{ writingMode: 'vertical-rl' }}
               >
-                BREAK
+                {`${breakStartStr} - ${breakEndStr}`}
               </th>
             )}
             {afternoon.map((slot, i) => (
@@ -273,8 +289,14 @@ const RoutineGrid = ({ assignments = [], header, teachers = [] }) => {
                     </td>
                   );
                 })}
-                {hasBreak && (
-                  <td className="bg-yellow-200 border-l border-r border-b border-yellow-500" />
+                {hasBreak && idx === 0 && (
+                  <td
+                    rowSpan={activeRows.length}
+                    className="bg-yellow-200 text-blue-950 font-extrabold text-center border-l border-r border-b border-yellow-500 w-8 text-xs"
+                    style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}
+                  >
+                    BREAK
+                  </td>
                 )}
                 {afternoon.map((slot) => {
                   const cell = dayMap[day]?.[ys]?.[slot.start];
@@ -316,16 +338,21 @@ function CellBody({ entry }) {
   const colorClass = getCourseColorClass(entry.course_code);
   return (
     <div
-      className={`w-full h-14 ${colorClass} flex flex-col items-center justify-center px-1 py-1 gap-0.5`}
+      className={`w-full h-14 ${colorClass} flex flex-col items-center justify-center px-1 py-1 gap-1`}
     >
-      <span className="text-[11px] font-bold text-slate-800 leading-tight text-center">
-        {entry.course_code}
-      </span>
-      <span className="text-[10px] text-slate-700 font-semibold leading-tight text-center">
-        {entry.teacher_abbr}
-      </span>
-      <span className="text-[10px] text-slate-600 font-medium leading-tight text-center">
-        R:{entry.room_id}
+      <div className="flex flex-row items-center justify-center gap-1.5 flex-wrap w-full leading-tight">
+        <span className="text-[11px] font-bold text-slate-800 text-center whitespace-nowrap">
+          {entry.course_code}
+        </span>
+        <span className="text-[11px] text-slate-700 font-bold text-center whitespace-nowrap">
+          -
+        </span>
+        <span className="text-[10px] text-slate-700 font-semibold text-center whitespace-nowrap">
+          {entry.teacher_abbr}
+        </span>
+      </div>
+      <span className="text-[10px] text-slate-600 font-bold leading-tight text-center">
+        {entry.room_id}
       </span>
     </div>
   );

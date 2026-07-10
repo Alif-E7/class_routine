@@ -33,24 +33,33 @@
  *
  * NOTE: model name and endpoint are read from env so they can be
  * updated without code changes:
- *   GROQ_API_KEY      — required to enable
- *   GROQ_MODEL        — default 'llama-3.3-70b-versatile'
- *   GROQ_BASE_URL     — default 'https://api.groq.com/openai/v1'
- *   GROQ_TIMEOUT_MS   — per-call timeout, default 6000ms
- */ 
-              
-const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
-const DEFAULT_BASE_URL = 'https://api.groq.com/openai/v1';
-const DEFAULT_TIMEOUT_MS = 6000;
+ *   OPENROUTER_API_KEY      — required to enable
+ *   OPENROUTER_MODEL        — default 'qwen/qwen-2.5-72b-instruct:free'
+ *   OPENROUTER_BASE_URL     — default 'https://openrouter.ai/api/v1'
+ *   OPENROUTER_TIMEOUT_MS   — per-call timeout, default 6000ms
+ */
+
+const DEFAULT_MODEL = 'openrouter/free';
+const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
+const DEFAULT_TIMEOUT_MS = 60000;
 // Hard cap on rows included in a prompt — keep tokens bounded.
-const MAX_SCHEDULE_ROWS = 800;
+// Hard cap on rows included in a prompt — keep tokens bounded.
+const MAX_SCHEDULE_ROWS = 400;
+
+function formatScheduleCompact(schedule) {
+  if (!Array.isArray(schedule)) return '';
+  return schedule
+    .slice(0, MAX_SCHEDULE_ROWS)
+    .map(r => `${r.day || ''},${r.slot_start ?? ''},${r.slot_end ?? ''},${r.course_code || ''},${r.teacher_abbr || ''},${r.room_id || ''},${r.year_sem || ''}`)
+    .join('\n');
+}
 
 function isEnabled() {
-  return Boolean(process.env.GROQ_API_KEY && process.env.GROQ_API_KEY.trim());
+  return Boolean(process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.trim());
 }
 
 function timeoutMs() {
-  const v = Number(process.env.GROQ_TIMEOUT_MS);
+  const v = Number(process.env.OPENROUTER_TIMEOUT_MS);
   return Number.isFinite(v) && v > 0 ? v : DEFAULT_TIMEOUT_MS;
 }
 
@@ -143,14 +152,14 @@ function buildFailurePrompt(schedulingErrorOrArg) {
 }
 
 /**
- * Build the prompt for explainRoutine. Includes a compact JSON dump
+ * Build the prompt for explainRoutine. Includes a compact text dump
  * of the schedule so the model can answer concrete questions about
  * "who teaches CSE406 on Sunday?" or "what room does DMKB use?".
  */
 function buildExplainPrompt({ schedule, config, prompt }) {
   const lines = [];
   lines.push('You are answering a university timetable administrator\'s question');
-  lines.push('about an already-generated schedule. Read the schedule JSON below and');
+  lines.push('about an already-generated schedule. Read the schedule data below and');
   lines.push('answer their question in plain text (max 4 sentences). Do not propose');
   lines.push('edits and do not invent classes that are not in the schedule.');
   lines.push('');
@@ -159,9 +168,8 @@ function buildExplainPrompt({ schedule, config, prompt }) {
     lines.push(JSON.stringify(config));
     lines.push('');
   }
-  lines.push('Schedule (array of {day, slot_start, slot_end, course_code, teacher_abbr, room_id, year_sem}):');
-  const rows = Array.isArray(schedule) ? schedule.slice(0, MAX_SCHEDULE_ROWS) : [];
-  lines.push(JSON.stringify(rows, null, 0));
+  lines.push('Schedule (format: day,slot_start,slot_end,course_code,teacher_abbr,room_id,year_sem):');
+  lines.push(formatScheduleCompact(schedule));
   if (Array.isArray(schedule) && schedule.length > MAX_SCHEDULE_ROWS) {
     lines.push('');
     lines.push(`(Note: schedule has ${schedule.length} rows; only the first ${MAX_SCHEDULE_ROWS} are shown.)`);
@@ -172,48 +180,71 @@ function buildExplainPrompt({ schedule, config, prompt }) {
 }
 
 /**
- * Build the prompt for parseEditRequest. We instruct the model to
- * reply with strict JSON so we can validate it before showing to the
- * admin.
+ * Turn a free-text edit request into a structured proposal.
+ * Now returns an array of messages to pass to the chat API.
  */
-function buildEditPrompt({ schedule, prompt }) {
+function buildEditPrompt({ schedule, prompt, score, history = [] }) {
   const lines = [];
-  lines.push('You are helping a university timetable administrator draft a manual edit');
-  lines.push('to an already-generated schedule.');
+  lines.push('You are an AI assistant helping a university timetable administrator with an already-generated schedule.');
+  if (score !== null && score !== undefined) {
+    lines.push(`The current routine has a quality score of ${score}/10.`);
+  }
+  lines.push('The admin might ask you for a manual change, or ask you about the pros and cons of the routine.');
   lines.push('');
-  lines.push('Reply with ONLY a single JSON object (no markdown, no commentary) shaped like:');
+  lines.push('When proposing a change, you MUST formulate a valid JSON object with the exact structure below.');
+  lines.push('Even if they just ask a question, respond with the same JSON structure. Do NOT wrap the JSON in markdown code blocks (no ```json).');
+  lines.push('');
+  lines.push('REQUIRED JSON STRUCTURE:');
   lines.push('{');
   lines.push('  "kind": "proposed_change" | "clarifying_question" | "explanation",');
-  lines.push('  "summary": "<one-line human description of what was understood>",');
-  lines.push('  "change": {');
-  lines.push('    "course_code": "<e.g. CSE406>",');
-  lines.push('    "from": { "day": "SUN", "slot_start": 540, "slot_end": 590 },');
-  lines.push('    "to":   { "day": "MON", "slot_start": 600, "slot_end": 650 }');
-  lines.push('  } | null,');
-  lines.push('  "question": "<if kind=clarifying_question, the question to ask the admin>" | null,');
-  lines.push('  "concerns": ["<short notes about conflicts / feasibility>"]');
+  lines.push('  "summary": "Your plain-english explanation, question, or reasoning (required, will be shown in the chat)",');
+  lines.push('  "change": {  // only if kind is "proposed_change"');
+  lines.push('    "course_code": "CSE406",');
+  lines.push('    "from": { "day": "SUN", "slot_start": 540, "slot_end": 630 },');
+  lines.push('    "to": { "day": "MON", "slot_start": 600, "slot_end": 690 }');
+  lines.push('  },');
+  lines.push('  "question": "If kind=clarifying_question, put it here",');
+  lines.push('  "concerns": [ "Any warnings about capacity or conflict" ]');
   lines.push('}');
   lines.push('');
-  lines.push('Rules:');
-  lines.push('  - slot_start / slot_end are minutes after midnight (e.g. 540 = 9:00).');
-  lines.push('  - day must be SUN/MON/TUE/WED/THU/SAT (whichever the config uses).');
-  lines.push('  - Only one of (change, question) should be non-null; the other must be null.');
-  lines.push('  - concerns is a free-form array of short strings flagging possible');
   lines.push('    conflicts (teacher already busy, room already booked, etc.) — empty if none.');
+  lines.push('  - If the user asks about the routine\'s quality, score, pros or cons, set kind="explanation" and put your answer in "summary". Make it conversational and helpful.');
   lines.push('  - If you cannot understand the request, set kind="clarifying_question" and ask.');
   lines.push('  - NEVER propose a change that violates the schedule\'s constraints without');
   lines.push('    flagging it in concerns.');
   lines.push('');
-  lines.push('Current schedule (abridged):');
-  const rows = Array.isArray(schedule) ? schedule.slice(0, MAX_SCHEDULE_ROWS) : [];
-  lines.push(JSON.stringify(rows, null, 0));
+  if (score !== undefined && score !== null) {
+    lines.push(`Routine Score: ${score}/10`);
+    lines.push('This score evaluates how well the soft constraints (day/room preferences) were met. 10 is a perfect schedule.');
+    lines.push('');
+  }
+  lines.push('Current schedule (abridged, format: day,slot_start,slot_end,course_code,teacher_abbr,room_id,year_sem):');
+  lines.push(formatScheduleCompact(schedule));
   if (Array.isArray(schedule) && schedule.length > MAX_SCHEDULE_ROWS) {
     lines.push('');
     lines.push(`(schedule has ${schedule.length} rows total; first ${MAX_SCHEDULE_ROWS} shown)`);
   }
   lines.push('');
-  lines.push('Admin request: ' + String(prompt || '').trim());
-  return lines.join('\n');
+  // Return an array of messages instead of a single string
+  const systemPrompt = lines.join('\n');
+  const messages = [
+    { role: 'system', content: systemPrompt }
+  ];
+
+  if (Array.isArray(history)) {
+    for (const msg of history) {
+      if (msg && msg.role && msg.content) {
+        messages.push({
+          role: msg.role === 'ai' || msg.role === 'assistant' ? 'assistant' : 'user',
+          content: String(msg.content)
+        });
+      }
+    }
+  }
+
+  messages.push({ role: 'user', content: String(prompt || '').trim() });
+
+  return messages;
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +315,7 @@ function extractJson(text) {
   if (first >= 0 && last > first) {
     const slice = candidate.slice(first, last + 1);
     try { return JSON.parse(slice); } catch (_) { /* fall through */ }
+    try { return (new Function('return ' + slice))(); } catch (_) { /* fall through */ }
   }
   return null;
 }
@@ -294,11 +326,15 @@ function extractJson(text) {
  */
 function normalizeEditProposal(parsed) {
   if (!parsed || typeof parsed !== 'object') return null;
-  const kind = String(parsed.kind || '').toLowerCase();
+  let kind = String(parsed.kind || '').toLowerCase();
   if (!['proposed_change', 'clarifying_question', 'explanation'].includes(kind)) {
-    return null;
+    if (parsed.summary || parsed.change) {
+      kind = parsed.change ? 'proposed_change' : 'explanation';
+    } else {
+      return null;
+    }
   }
-  const summary = typeof parsed.summary === 'string' ? parsed.summary.slice(0, 300) : '';
+  const summary = typeof parsed.summary === 'string' ? parsed.summary.slice(0, 3000) : '';
   const concerns = Array.isArray(parsed.concerns)
     ? parsed.concerns.map((c) => String(c).slice(0, 200)).slice(0, 8)
     : [];
@@ -308,9 +344,9 @@ function normalizeEditProposal(parsed) {
     const from = c.from && typeof c.from === 'object' ? c.from : null;
     const to = c.to && typeof c.to === 'object' ? c.to : null;
     if (c.course_code && from && to &&
-        typeof from.day === 'string' && typeof to.day === 'string' &&
-        Number.isFinite(from.slot_start) && Number.isFinite(from.slot_end) &&
-        Number.isFinite(to.slot_start) && Number.isFinite(to.slot_end)) {
+      typeof from.day === 'string' && typeof to.day === 'string' &&
+      Number.isFinite(from.slot_start) && Number.isFinite(from.slot_end) &&
+      Number.isFinite(to.slot_start) && Number.isFinite(to.slot_end)) {
       change = {
         course_code: String(c.course_code).slice(0, 32),
         from: {
@@ -333,56 +369,107 @@ function normalizeEditProposal(parsed) {
 }
 
 // ---------------------------------------------------------------------------
-// Low-level call to Groq (OpenAI-compatible chat completions API)
+// Low-level call to AI Provider (OpenAI-compatible chat completions API)
 // ---------------------------------------------------------------------------
 
-async function callGroq(promptText, opts = {}) {
+async function callProvider(promptOrMessages, opts = {}) {
   if (!isEnabled()) {
     return { available: false, reason: 'no_api_key', text: null, json: null };
   }
-  const apiKey = process.env.GROQ_API_KEY.trim();
-  const model = process.env.GROQ_MODEL || DEFAULT_MODEL;
-  const baseURL = process.env.GROQ_BASE_URL || DEFAULT_BASE_URL;
+  const apiKey = process.env.OPENROUTER_API_KEY.trim();
+  const baseModel = process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
+  const baseURL = process.env.OPENROUTER_BASE_URL || DEFAULT_BASE_URL;
 
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), opts.timeoutMs || timeoutMs());
+  // Try multiple free models in case of rate limits (429) or temporary outages (502/503)
+  const modelsToTry = [
+    baseModel,
+    'tencent/hy3:free',
+    'google/gemma-4-26b-a4b-it:free',
+    'meta-llama/llama-3.3-70b-instruct:free',
+    'qwen/qwen3-next-80b-a3b-instruct:free'
+  ].filter((v, i, a) => a.indexOf(v) === i);
 
-  try {
-    const res = await fetch(`${baseURL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model,
-        messages: [{ role: 'user', content: promptText }],
-        temperature: opts.temperature != null ? opts.temperature : 0.4,
-        max_tokens: opts.maxOutputTokens != null ? opts.maxOutputTokens : 320,
-      }),
-    });
-    clearTimeout(t);
-    if (!res.ok) {
-      return { available: true, reason: `http_${res.status}`, text: null, json: null };
+  let lastErrorReason = null;
+  let lastJson = null;
+
+  for (const currentModel of modelsToTry) {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), opts.timeoutMs || timeoutMs());
+
+    const messages = Array.isArray(promptOrMessages)
+      ? promptOrMessages
+      : [{ role: 'user', content: promptOrMessages }];
+
+    try {
+      console.log(`[AI Provider] Attempting completions using model: ${currentModel}`);
+      const res = await fetch(`${baseURL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': 'http://localhost:3000',
+          'X-Title': 'Class Routine Generator',
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: currentModel,
+          messages,
+          temperature: opts.temperature != null ? opts.temperature : 0.4,
+          max_tokens: opts.maxOutputTokens != null ? opts.maxOutputTokens : 1000,
+          provider: {
+            allow_fallbacks: true
+          }
+        }),
+      });
+      clearTimeout(t);
+
+      const status = res.status;
+      let json = null;
+      try {
+        json = await res.json();
+      } catch (_) { }
+
+      if (status === 200 && json) {
+        const choice = (json.choices && json.choices[0]) || null;
+        const text = choice && choice.message && typeof choice.message.content === 'string'
+          ? choice.message.content
+          : null;
+        if (text) {
+          if (opts.validate && !opts.validate(text)) {
+            console.warn(`[AI Provider] Model ${currentModel} response failed validation. Trying next fallback...`);
+            lastErrorReason = 'invalid_json';
+            continue;
+          }
+          console.log(`[AI Provider] Success with model: ${currentModel}`);
+          return { available: true, reason: null, text, json };
+        }
+        lastErrorReason = 'empty_response';
+        lastJson = json;
+      } else {
+        console.warn(`[AI Provider] Model ${currentModel} failed with status ${status}:`, json);
+        lastErrorReason = `http_${status}`;
+        lastJson = json;
+
+        if (status === 429 || status === 502 || status === 503) {
+          continue;
+        }
+        return { available: true, reason: `http_${status}`, text: null, json };
+      }
+    } catch (err) {
+      clearTimeout(t);
+      const isTimeout = err && err.name === 'AbortError';
+      console.error(`[AI Provider] Error calling model ${currentModel}:`, err);
+      lastErrorReason = isTimeout ? 'timeout' : 'call_failed';
+      continue;
     }
-    const json = await res.json();
-    const choice = (json && json.choices && json.choices[0]) || null;
-    const text = choice && choice.message && typeof choice.message.content === 'string'
-      ? choice.message.content
-      : null;
-    return text
-      ? { available: true, reason: null, text, json }
-      : { available: true, reason: 'empty_response', text: null, json };
-  } catch (err) {
-    clearTimeout(t);
-    return {
-      available: true,
-      reason: err && err.name === 'AbortError' ? 'timeout' : 'call_failed',
-      text: null,
-      json: null,
-    };
   }
+
+  return {
+    available: true,
+    reason: lastErrorReason,
+    text: null,
+    json: lastJson,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -429,8 +516,8 @@ function buildValidatorPrompt(issue) {
   lines.push('');
   lines.push(`Severity: ${issue.severity || 'error'}`);
   lines.push(`Rule:     ${issue.code || issue.rule || '(unknown)'}`);
-  if (issue.sheet)   lines.push(`Sheet:    ${issue.sheet}`);
-  if (issue.column)  lines.push(`Column:   ${issue.column}`);
+  if (issue.sheet) lines.push(`Sheet:    ${issue.sheet}`);
+  if (issue.column) lines.push(`Column:   ${issue.column}`);
   if (issue.row != null) lines.push(`Row:      ${issue.row}`);
   if (issue.value != null && issue.value !== '') lines.push(`Value:    ${JSON.stringify(issue.value)}`);
   lines.push(`Message:  ${issue.message || '(none)'}`);
@@ -500,7 +587,7 @@ function buildUploadIssuesPrompt(errors, warnings) {
  * @returns {Promise<{available:boolean, friendly_hint:string|null, reason?:string}>}
  */
 async function explainFailure(schedulingError, opts) {
-  const r = await callGroq(buildFailurePrompt({
+  const r = await callProvider(buildFailurePrompt({
     schedulingError,
     diagnostics: opts && opts.diagnostics,
   }));
@@ -522,7 +609,7 @@ async function explainFailure(schedulingError, opts) {
  * @returns {Promise<{available:boolean, answer:string|null, reason?:string}>}
  */
 async function explainRoutine({ schedule, config, prompt }) {
-  const r = await callGroq(buildExplainPrompt({ schedule, config, prompt }));
+  const r = await callProvider(buildExplainPrompt({ schedule, config, prompt }));
   if (!r.available) return { available: false, answer: null, reason: r.reason };
   if (r.reason) return { available: true, answer: null, reason: r.reason };
   const answer = sanitize(r.text);
@@ -537,6 +624,8 @@ async function explainRoutine({ schedule, config, prompt }) {
  * @param {object} args
  * @param {Array}  args.schedule    array of schedule rows
  * @param {string} args.prompt      the admin's request
+ * @param {number} [args.score]     the generated routine score (out of 10)
+ * @param {Array}  [args.history]   the conversation history
  * @returns {Promise<{
  *   available: boolean,
  *   proposal: object|null,         // normalized proposal, or null on parse failure
@@ -544,15 +633,34 @@ async function explainRoutine({ schedule, config, prompt }) {
  *                                  // or when available=false
  * }>}
  */
-async function parseEditRequest({ schedule, prompt }) {
-  const r = await callGroq(buildEditPrompt({ schedule, prompt }), {
+async function parseEditRequest({ schedule, prompt, score, history }) {
+  const r = await callProvider(buildEditPrompt({ schedule, prompt, score, history }), {
     temperature: 0.2,
-    maxOutputTokens: 600,
+    maxOutputTokens: 2500,
+    validate: (text) => {
+      const parsed = extractJson(text);
+      const proposal = normalizeEditProposal(parsed);
+      return proposal !== null;
+    }
   });
   if (!r.available) return { available: false, proposal: null, reason: r.reason };
   if (r.reason) return { available: true, proposal: null, reason: r.reason };
-  const parsed = extractJson(r.text);
+
+  console.log("QWEN RAW RESPONSE:", r.text);
+
+  let parsed = extractJson(r.text);
+  if (!parsed && r.text && r.text.trim()) {
+    // Fallback: If model completely ignored JSON instructions, just use its raw text as an explanation.
+    parsed = {
+      kind: 'explanation',
+      summary: r.text.trim()
+    };
+  }
+  console.log("QWEN PARSED JSON:", parsed);
+
   const proposal = normalizeEditProposal(parsed);
+  console.log("NORMALIZED PROPOSAL:", proposal);
+
   return proposal
     ? { available: true, proposal }
     : { available: true, proposal: null, reason: 'invalid_json' };
@@ -581,7 +689,7 @@ async function explainValidator(issue) {
   if (!issue || !issue.message) {
     return { available: false, explanation: null, board_suggestion: null, reason: 'invalid_issue' };
   }
-  const r = await callGroq(buildValidatorPrompt(issue), {
+  const r = await callProvider(buildValidatorPrompt(issue), {
     temperature: 0.3,
     maxOutputTokens: 360,
   });
@@ -611,12 +719,16 @@ async function explainUploadIssues(errors, warnings) {
   if ((!errors || errors.length === 0) && (!warnings || warnings.length === 0)) {
     return { available: true, summary: null, actionable_hints: [] };
   }
-  const r = await callGroq(buildUploadIssuesPrompt(errors || [], warnings || []), {
+  const r = await callProvider(buildUploadIssuesPrompt(errors || [], warnings || []), {
     temperature: 0.3,
     maxOutputTokens: 900,
+    validate: (text) => {
+      const parsed = extractJson(text);
+      return parsed && typeof parsed === 'object';
+    }
   });
   if (!r.available) return { available: false, summary: null, actionable_hints: null, reason: r.reason };
-  if (r.reason)     return { available: true,  summary: null, actionable_hints: null, reason: r.reason };
+  if (r.reason) return { available: true, summary: null, actionable_hints: null, reason: r.reason };
 
   const parsed = extractJson(r.text);
   if (!parsed || typeof parsed !== 'object') {
@@ -628,9 +740,9 @@ async function explainUploadIssues(errors, warnings) {
   const actionable_hints = rawHints
     .filter(h => h && typeof h === 'object')
     .map(h => ({
-      rule:         typeof h.rule         === 'string' ? h.rule.slice(0, 10)  : '?',
-      severity:     h.severity === 'warning' ? 'warning' : 'error',
-      fix:          typeof h.fix          === 'string' ? h.fix.slice(0, 300)  : '',
+      rule: typeof h.rule === 'string' ? h.rule.slice(0, 10) : '?',
+      severity: h.severity === 'warning' ? 'warning' : 'error',
+      fix: typeof h.fix === 'string' ? h.fix.slice(0, 300) : '',
       excel_action: typeof h.excel_action === 'string' ? h.excel_action.slice(0, 300) : null,
     }))
     .slice(0, 20);

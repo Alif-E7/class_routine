@@ -94,13 +94,13 @@ describe('PdfGernerator — pure helpers', () => {
     ).toBe(780);
   });
 
-  test('cellLinesFor returns [course, teacher, room]', () => {
+  test('cellLinesFor returns [course_teacher, room]', () => {
     const lines = _internal.cellLinesFor({
       course_code: 'CSE101',
       teacher_abbr: 'AYR',
       room_id: 'R101',
     });
-    expect(lines).toEqual(['CSE101', 'AYR', 'R101']);
+    expect(lines).toEqual(['CSE101, AYR', 'R101']);
   });
 });
 

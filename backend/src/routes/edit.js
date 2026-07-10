@@ -87,8 +87,7 @@ router.post('/:id/edit', async (req, res, next) => {
   try {
     // 1. Load batch header (so we know the config + ensure it exists).
     const [batchRows] = await getPool().query(
-      `SELECT id, university, department, semester,
-              status, total_sessions, generated_at
+      `SELECT id, filename, semester, status
          FROM upload_batches WHERE id = ?`,
       [batchId]
     );
@@ -145,8 +144,8 @@ router.post('/:id/edit', async (req, res, next) => {
     //    surface to the admin so they know the AI ran but could
     //    not produce a usable proposal.
     const config = {
-      university: batch.university,
-      department: batch.department,
+      university: 'Gopalganj Science and Technology University',
+      department: 'Computer Science and Engineering',
       semester: batch.semester,
     };
     let aiResult;
@@ -155,6 +154,8 @@ router.post('/:id/edit', async (req, res, next) => {
         schedule: scheduleRows,
         config,
         prompt,
+        score: req.body.score !== undefined ? Number(req.body.score) : null,
+        history: req.body.history || [],
       });
     } catch (_aiErr) {
       // Defensive — parseEditRequest should never throw, but if it
@@ -178,6 +179,23 @@ router.post('/:id/edit', async (req, res, next) => {
     // problems (timeout / network — transient → 503) from parse-level
     // problems (invalid_json — permanent for this request → 502).
     if (!aiResult.proposal) {
+      if (aiResult.reason === 'http_429') {
+        return res.status(429).json({
+          success: false,
+          code: 'AI_RATE_LIMIT',
+          message: 'The AI provider is rate-limiting your API key. Please wait a moment and try again.',
+          reason: 'http_429',
+        });
+      }
+      if (aiResult.reason === 'http_401' || aiResult.reason === 'http_403') {
+        return res.status(403).json({
+          success: false,
+          code: 'AI_AUTH_ERROR',
+          message: 'The AI provider rejected your API key. Please check your OPENROUTER_API_KEY in the .env file.',
+          reason: aiResult.reason,
+        });
+      }
+      
       const transient = ['timeout', 'call_failed', 'http_error',
         'http_500', 'http_502', 'http_503', 'http_504', 'empty_response'];
       if (transient.includes(aiResult.reason)) {

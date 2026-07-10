@@ -176,7 +176,9 @@ function cellLinesFor(a) {
   const course = String(a.course_code || '').trim();
   const teacher = String(a.teacher_abbr || '').trim();
   const room = String(a.room_id || '').trim();
-  return [course, teacher, room].filter(Boolean);
+  
+  const line1 = [course, teacher].filter(Boolean).join(', ');
+  return [line1, room].filter(Boolean);
 }
 
 /** Render the cell paragraphs (one per line) with bold course. */
@@ -260,6 +262,8 @@ function withBorders(cell) {
 // ---------------------------------------------------------------------------
 
 function buildUniversityHeaderTable(header) {
+  const deptText = (header.department ? `Department of ${header.department}` : 'Department') +
+    (header.semester ? ` (${header.semester})` : '');
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
@@ -287,27 +291,9 @@ function buildUniversityHeaderTable(header) {
             alignment: AlignmentType.CENTER,
             spacing: { before: 60, after: 60 },
             children: [new TextRun({
-              text: header.department ? `Department of ${header.department}` : 'Department',
+              text: deptText,
               bold: true,
               size: 26,
-              color: 'FFFFFF',
-            })],
-          })],
-        }))],
-      }),
-      new TableRow({
-        children: [withBorders(new TableCell({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          shading: { type: ShadingType.SOLID, color: 'auto', fill: '2563EB' },
-          children: [new Paragraph({
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 60, after: 60 },
-            children: [new TextRun({
-              text: header.semester
-                ? `Tentative Class Routine: ${header.semester}`
-                : 'Class Routine',
-              italics: true,
-              size: 24,
               color: 'FFFFFF',
             })],
           })],
@@ -322,7 +308,62 @@ function buildUniversityHeaderTable(header) {
 // ---------------------------------------------------------------------------
 
 function buildRoutineTable({ assignments, config, days }) {
-  const slotCols = collectSlotLabels(assignments);
+  let slotCols;
+  const toMin = (t) => {
+    if (typeof t === 'number') return t;
+    if (typeof t === 'string' && t.includes(':')) {
+      const parts = t.split(':');
+      return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    }
+    const parsed = parseInt(String(t), 10);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+
+  const cs = config ? toMin(config.class_start) : NaN;
+  const ce = config ? toMin(config.class_end) : NaN;
+  let bs = config ? toMin(config.break_start) : NaN;
+  let be = config ? toMin(config.break_end) : NaN;
+  const d = 50;
+
+  if (config && !Number.isNaN(cs) && !Number.isNaN(ce) && cs < ce) {
+    if (Number.isNaN(bs) || Number.isNaN(be) || bs >= be || bs <= cs || be >= ce) {
+      const bd = (be > bs) ? (be - bs) : 60;
+      const totalMinutes = ce - cs;
+      const N = Math.floor((totalMinutes - bd) / d);
+      if (N > 0) {
+        let morningSlotsCount = Math.ceil(N / 2);
+        bs = cs + morningSlotsCount * d;
+        be = bs + bd;
+        while (be > ce && morningSlotsCount > 0) {
+          morningSlotsCount--;
+          bs = cs + morningSlotsCount * d;
+          be = bs + bd;
+        }
+      } else {
+        bs = Math.floor((cs + ce) / 2);
+        be = bs;
+      }
+    }
+
+    const temp = [];
+    for (let t = cs; t + d <= bs; t += d) {
+      temp.push({
+        start: t,
+        end: t + d,
+        label: fmtRange(t, t + d),
+      });
+    }
+    for (let t = be; t + d <= ce; t += d) {
+      temp.push({
+        start: t,
+        end: t + d,
+        label: fmtRange(t, t + d),
+      });
+    }
+    slotCols = temp;
+  } else {
+    slotCols = collectSlotLabels(assignments);
+  }
   const breakStart = findBreakStart(assignments, config);
   const yearSemOrder = deriveYearSemOrder(assignments);
 
@@ -334,6 +375,12 @@ function buildRoutineTable({ assignments, config, days }) {
   const morningCols = slotCols.slice(0, morningEndIdx);
   const afternoonCols = slotCols.slice(morningEndIdx);
   const hasBreak = morningCols.length > 0 && afternoonCols.length > 0;
+  let breakStartStr = '';
+  let breakEndStr = '';
+  if (hasBreak) {
+    breakStartStr = fmtTime(morningCols[morningCols.length - 1].end);
+    breakEndStr = fmtTime(afternoonCols[0].start);
+  }
 
   const totalCols = 2 + morningCols.length + (hasBreak ? 1 : 0) + afternoonCols.length;
   const gridIndex = indexAssignments(assignments);
@@ -381,7 +428,7 @@ function buildRoutineTable({ assignments, config, days }) {
       verticalAlign: 'center',
       children: [new Paragraph({
         alignment: AlignmentType.CENTER,
-        children: [new TextRun({ text: 'BREAK', bold: true, color: 'FFFFFF', size: 22 })],
+        children: [new TextRun({ text: `${breakStartStr}-${breakEndStr}`, bold: true, color: 'FFFFFF', size: 18 })],
       })],
     })));
   }

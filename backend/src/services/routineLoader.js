@@ -26,6 +26,7 @@
  */
 
 const { getPool } = require('../db/pool');
+const { normalizeTimeInput } = require('./excelParser');
 
 function deriveDurationMinutes() {
   // Always partition the day into uniform 50-minute blocks.
@@ -70,7 +71,7 @@ async function loadBatchForSchedule(batchId, conn) {
   const configRaw = {};
   for (const row of configRows) configRaw[String(row.key).trim()] = row.value;
 
-  const requiredConfigKeys = ['working_days', 'class_start', 'class_end', 'break_start', 'break_end'];
+  const requiredConfigKeys = ['working_days', 'class_start', 'class_end'];
   const missingConfig = requiredConfigKeys.filter((k) => !configRaw[k]);
   if (missingConfig.length > 0) {
     throw new LoadError(
@@ -166,11 +167,11 @@ async function loadBatchForSchedule(batchId, conn) {
   );
 
   const config = {
-    working_days:     String(configRaw.working_days).trim(),
-    class_start:      String(configRaw.class_start).trim(),
-    class_end:        String(configRaw.class_end).trim(),
-    break_start:      String(configRaw.break_start).trim(),
-    break_end:        String(configRaw.break_end).trim(),
+    working_days:     String(configRaw.working_days || '').trim(),
+    class_start:      normalizeTimeInput(configRaw.class_start) || '',
+    class_end:        normalizeTimeInput(configRaw.class_end) || '',
+    break_start:      normalizeTimeInput(configRaw.break_start) || '',
+    break_end:        normalizeTimeInput(configRaw.break_end) || '',
     duration_minutes: deriveDurationMinutes(),
   };
 

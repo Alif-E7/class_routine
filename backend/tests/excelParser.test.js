@@ -1,7 +1,7 @@
 'use strict';
 
 const XLSX = require('xlsx');
-const { parseWorkbook, ParseError } = require('../src/services/excelParser');
+const { parseWorkbook, ParseError, normalizeTimeInput } = require('../src/services/excelParser');
 
 /**
  * Build a real .xlsx buffer in-memory using SheetJS. The workbook has
@@ -288,5 +288,36 @@ describe('excelParser — stop at first blank row', () => {
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
     const result = parseWorkbook(buf, 'empty.xlsx');
     expect(result.teachers).toEqual([]);
+  });
+ 
+  describe('normalizeTimeInput', () => {
+    test('converts Excel day fractions to HH:MM format', () => {
+      expect(normalizeTimeInput(0.5486111111111112)).toBe('13:10');
+      expect(normalizeTimeInput(0.5902777777777778)).toBe('14:10');
+      expect(normalizeTimeInput('0.375')).toBe('09:00');
+    });
+
+    test('converts 12h AM/PM format to HH:MM format', () => {
+      expect(normalizeTimeInput('1:10 PM')).toBe('13:10');
+      expect(normalizeTimeInput('9 AM')).toBe('09:00');
+      expect(normalizeTimeInput('12:30 AM')).toBe('00:30');
+      expect(normalizeTimeInput('12:00 PM')).toBe('12:00');
+    });
+
+    test('normalizes 24h format', () => {
+      expect(normalizeTimeInput('13:10')).toBe('13:10');
+      expect(normalizeTimeInput('09:00:00')).toBe('09:00');
+    });
+
+    test('converts plain integer hour to HH:MM format', () => {
+      expect(normalizeTimeInput(9)).toBe('09:00');
+      expect(normalizeTimeInput('13')).toBe('13:00');
+    });
+
+    test('returns invalid values as-is', () => {
+      expect(normalizeTimeInput('INVALID')).toBe('INVALID');
+      expect(normalizeTimeInput('')).toBeNull();
+      expect(normalizeTimeInput(null)).toBeNull();
+    });
   });
 });

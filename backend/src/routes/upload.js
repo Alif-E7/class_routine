@@ -55,10 +55,15 @@ router.post('/', upload.single('file'), async (req, res, next) => {
     // 3. If validation fails, create a batch row in 'needs_review' and
     //    call Groq AI (non-blocking) to produce actionable fix hints.
     if (!report.isValid) {
+      const errorLogObj = {
+        errors: report.errors,
+        warnings: report.warnings,
+        workbook: workbook,
+      };
       const [result] = await getPool().query(
         `INSERT INTO upload_batches (filename, semester, status, error_log)
          VALUES (?, ?, 'needs_review', ?)`,
-        [req.file.originalname, req.body.semester || null, JSON.stringify(report)]
+        [req.file.originalname, req.body.semester || null, JSON.stringify(errorLogObj)]
       );
 
       // AI-powered batch analysis — never blocks or fails the response.

@@ -60,9 +60,10 @@ const router = express.Router({ mergeParams: true });
 
 const { withTransaction, getPool } = require('../db/pool');
 const { loadBatchForSchedule, LoadError } = require('../services/routineLoader');
-const { solve, SchedulingError, formatTime, normalizeSlotValue } = require('../services/scheduler');
+const { solve, SchedulingError, formatTime, normalizeSlotValue, calculateScore } = require('../services/scheduler');
 const { explainFailure } = require('../services/aiProvider');
 const { buildDiagnostics } = require('../services/diagnostics');
+const { normalizeTimeInput } = require('../services/excelParser');
 
 // 10-minute ceiling per the build prompt's "long-running" callout.
 const SOLVE_BUDGET_DEFAULT = parseInt(process.env.SCHEDULER_BUDGET || '', 10) || 200_000;
@@ -247,7 +248,10 @@ router.post('/:id/generate', async (req, res, next) => {
       // Stamp the batch as having a generated routine (status is
       // already 'completed' from the upload step; we leave it alone
       // so failed/partial runs don't overwrite the upload status).
-      return { assignments_count: rows.length };
+      
+      const score = calculateScore(assignments, loaded);
+
+      return { assignments_count: rows.length, score };
     });
 
     return res.status(200).json({
@@ -255,7 +259,9 @@ router.post('/:id/generate', async (req, res, next) => {
       code: 'SCHEDULE_OK',
       batch_id: batchId,
       assignments_count: result.assignments_count,
+      score: result.score,
       assignments,
+      config: loaded.config,
     });
   } catch (err) {
     if (err instanceof LoadError) {
@@ -309,6 +315,20 @@ router.get('/:id/schedule', async (req, res, next) => {
        ORDER BY year_sem, day, slot_start, course_code`,
       [batchId]
     );
+    // Query config rows
+    const [configRows] = await getPool().query(
+      'SELECT `key`, `value` FROM config WHERE upload_batch_id = ?',
+      [batchId]
+    );
+    const config = {};
+    const TIME_CONFIG_KEYS = new Set(['class_start', 'class_end', 'break_start', 'break_end']);
+    for (const r of configRows) {
+      const key = String(r.key).trim();
+      // Normalize time fields — stored batches may have raw Excel decimal fractions.
+      config[key] = TIME_CONFIG_KEYS.has(key)
+        ? (normalizeTimeInput(r.value) || String(r.value).trim())
+        : r.value;
+    }
     // mysql2 with `dateStrings: true` returns TIME columns as
     // 'HH:MM:SS' strings. Normalize back to integer minutes so the
     // API response shape matches the just-generated POST response
@@ -318,12 +338,45 @@ router.get('/:id/schedule', async (req, res, next) => {
       slot_start: normalizeSlotValue(r.slot_start),
       slot_end: normalizeSlotValue(r.slot_end),
     }));
+    
+    let score = null;
+    try {
+      const loaded = await loadBatchForSchedule(batchId);
+      score = calculateScore(normalized, loaded);
+    } catch (e) {
+      console.warn("Failed to calculate score on GET", e.message);
+    }
+
+    // Query active year_sems
+    const [yearSemRows] = await getPool().query(
+      'SELECT year_sem FROM year_sem WHERE upload_batch_id = ? AND is_active = 1 ORDER BY year DESC, semester DESC',
+      [batchId]
+    );
+    let year_sem_list = yearSemRows.map(r => r.year_sem);
+    if (year_sem_list.length === 0) {
+      year_sem_list = ['4-1', '3-2', '2-2', '2-1', '1-1']; // Fallback
+    }
+
+    // Query active days
+    const [dayRows] = await getPool().query(
+      'SELECT day FROM day_preference WHERE upload_batch_id = ? GROUP BY day ORDER BY MIN(id) ASC',
+      [batchId]
+    );
+    let day_list = dayRows.map(r => r.day);
+    if (day_list.length === 0) {
+      day_list = ['SUN', 'MON', 'TUE', 'WED', 'THU']; // Fallback
+    }
+
     return res.json({
       success: true,
       code: 'SCHEDULE_OK',
       batch_id: batchId,
       assignments_count: normalized.length,
+      score,
       assignments: normalized,
+      config,
+      year_sem_list,
+      day_list,
     });
   } catch (err) {
     next(err);

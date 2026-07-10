@@ -17,7 +17,7 @@ const buildSectionLabel = (year, semester) => {
   return `${y}-${sm}`;
 };
 
-const TimetableGrid = ({ entries, semesterName, departmentName }) => {
+const TimetableGrid = ({ entries, semesterName, departmentName, universityName = 'University Name' }) => {
   const processed = useMemo(() => {
     if (!entries || entries.length === 0) return null;
 
@@ -110,23 +110,29 @@ const TimetableGrid = ({ entries, semesterName, departmentName }) => {
   const afternoonSlots = hasBreak ? sortedSlots.slice(breakIndex + 1) : [];
   const totalCols = 2 + morningSlots.length + (hasBreak ? 1 : 0) + afternoonSlots.length;
 
+  const fmt = (t) => {
+    const [h, m] = String(t || '0:0').split(':').map(Number);
+    const ampm = h < 12 ? 'am' : 'pm';
+    const hr = h > 12 ? h - 12 : h === 0 ? 12 : h;
+    return `${hr}:${String(m).padStart(2,'0')}${ampm}`;
+  };
+
+  const breakStartStr = hasBreak && morningSlots.length > 0 ? fmt(morningSlots[morningSlots.length - 1].end) : '';
+  const breakEndStr = hasBreak && afternoonSlots.length > 0 ? fmt(afternoonSlots[0].start) : '';
+
   return (
     <div className="bg-white border border-blue-900 rounded-lg overflow-hidden shadow-md font-sans">
       <table className="w-full border-collapse min-w-[800px]">
         <thead>
           <tr>
             <th colSpan={totalCols} className="bg-blue-900 text-white font-bold text-center py-3 text-2xl tracking-tight border-b-2 border-blue-950">
-              Gopalganj Science and Technology University
+              {universityName}
             </th>
           </tr>
           <tr>
             <th colSpan={totalCols} className="bg-blue-800 text-white font-semibold text-center py-1.5 text-base border-b border-blue-900">
               {departmentName === 'All Departments' || !departmentName ? 'All Departments' : `Department of ${departmentName}`}
-            </th>
-          </tr>
-          <tr>
-            <th colSpan={totalCols} className="bg-blue-700 text-blue-50 text-center py-1.5 text-sm italic border-b-2 border-blue-900">
-              Tentative Class Routine: {semesterName || 'Selected Semester'}
+              {semesterName ? ` (${semesterName})` : ''}
             </th>
           </tr>
           <tr>
@@ -138,7 +144,9 @@ const TimetableGrid = ({ entries, semesterName, departmentName }) => {
               </th>
             ))}
             {hasBreak && (
-              <th rowSpan={2} className="bg-yellow-300 text-blue-950 font-extrabold text-center border-l border-r border-yellow-500 w-8 text-xs" style={{ writingMode: 'vertical-rl' }}>BREAK</th>
+              <th rowSpan={2} className="bg-yellow-300 text-blue-950 font-bold text-center border-l border-r border-yellow-500 w-8 text-xs" style={{ writingMode: 'vertical-rl' }}>
+                {`${breakStartStr} - ${breakEndStr}`}
+              </th>
             )}
             {afternoonSlots.map((slot, i) => (
               <th key={`a-${i}`} className="bg-blue-700 text-white font-semibold text-center border-r border-blue-900 px-2 py-1 text-xs whitespace-nowrap">
@@ -165,7 +173,15 @@ const TimetableGrid = ({ entries, semesterName, departmentName }) => {
                 {morningSlots.map((slot, i) => (
                   <td key={`m-${i}`} className="border-r border-b border-blue-900 p-0 align-stretch">{renderCell(daysMap[day][secKey]?.[`${slot.start}-${slot.end}`])}</td>
                 ))}
-                {hasBreak && <td className="bg-yellow-200 border-l border-r border-b border-yellow-500" />}
+                {hasBreak && idx === 0 && (
+                  <td
+                    rowSpan={activeSections.length}
+                    className="bg-yellow-200 text-blue-950 font-extrabold text-center border-l border-r border-b border-yellow-500 w-8 text-xs"
+                    style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}
+                  >
+                    BREAK
+                  </td>
+                )}
                 {afternoonSlots.map((slot, i) => (
                   <td key={`a-${i}`} className="border-r border-b border-blue-900 p-0 align-stretch">{renderCell(daysMap[day][secKey]?.[`${slot.start}-${slot.end}`])}</td>
                 ))}
@@ -214,11 +230,12 @@ function formatSlotLabel(slot) {
 
 function CellBody({ entry }) {
   const colorClass = getCourseColorClass(entry.course.courseCode);
+  const teacherCode = entry.teacher?.teacherCode || '';
+  const firstLine = [entry.course.courseCode, teacherCode].filter(Boolean).join(', ');
   return (
     <div className={`w-full h-14 ${colorClass} flex flex-col items-center justify-center px-1 py-1 gap-0.5`}>
-      <span className="text-[11px] font-bold text-slate-800 leading-tight text-center">{entry.course.courseCode}</span>
-      <span className="text-[10px] text-slate-700 font-semibold leading-tight text-center">{entry.teacher.teacherCode}</span>
-      <span className="text-[10px] text-slate-600 font-medium leading-tight text-center">R:{entry.room?.roomNo || ''}</span>
+      <span className="text-[11px] font-bold text-slate-800 leading-tight text-center">{firstLine}</span>
+      <span className="text-[10px] text-slate-600 font-medium leading-tight text-center">{entry.room?.roomNo || ''}</span>
     </div>
   );
 }

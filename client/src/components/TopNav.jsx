@@ -1,19 +1,9 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Upload, History, Shield, User, LogOut, LogIn, Waves } from 'lucide-react';
+import { Upload, History, Shield, Waves } from 'lucide-react';
 import { clsx } from 'clsx';
-import { useAuth } from '../contexts/AuthContext';
-import toast from 'react-hot-toast';
 
 const TopNav = () => {
   const location = useLocation();
-  const navigate = useNavigate();
-  const { isAdmin, user, logout } = useAuth();
-
-  const handleLogout = () => {
-    logout();
-    toast.success('Logged out successfully');
-    navigate('/login');
-  };
 
   const navLink = (to, label, Icon, exact = false) => {
     const isActive = exact
@@ -56,38 +46,6 @@ const TopNav = () => {
 
       {/* Right — Auth */}
       <div className="flex items-center gap-3">
-        {isAdmin ? (
-          <>
-            <div className="hidden sm:flex items-center gap-2 bg-white/5 px-3 py-1.5 rounded-full border border-sky-500/20">
-              <div className="bg-sky-500/20 p-1.5 rounded-full">
-                <User className="w-3.5 h-3.5 text-sky-300" />
-              </div>
-              <div className="text-left">
-                <p className="text-xs font-semibold text-white leading-tight">
-                  {user?.email}
-                </p>
-                <p className="text-[9px] text-sky-400 leading-tight tracking-widest uppercase">
-                  Administrator
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-red-300 hover:text-white hover:bg-red-500/20 border border-transparent hover:border-red-400/30 transition-all"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">Logout</span>
-            </button>
-          </>
-        ) : (
-          <Link
-            to="/login"
-            className="flex items-center gap-2 px-4 py-2 bg-sky-500/20 hover:bg-sky-500/30 text-sky-100 font-medium rounded-lg border border-sky-400/30 transition-all text-sm hover:shadow-[0_0_12px_rgba(56,189,248,0.2)]"
-          >
-            <LogIn className="w-4 h-4" />
-            <span>Admin Login</span>
-          </Link>
-        )}
       </div>
     </div>
   );

@@ -210,18 +210,7 @@ const UploadPage = () => {
       {/* form */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Semester label (optional)
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. 2026 July-December"
-              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition-shadow"
-              value={semester}
-              onChange={(e) => setSemester(e.target.value)}
-            />
-          </div>
+
 
           <div
             className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors cursor-pointer ${
