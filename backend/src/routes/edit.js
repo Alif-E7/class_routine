@@ -354,7 +354,7 @@ router.post('/:id/explain-error', async (req, res, next) => {
       }
 
       // Transient transport errors — caller can retry.
-      const transient = ['timeout', 'call_failed', 'http_error',
+      const transient = ['timeout', 'call_failed', 'http_error', 'http_429',
         'http_500', 'http_502', 'http_503', 'http_504', 'empty_response'];
       if (transient.includes(reason)) {
         return res.status(503).json({

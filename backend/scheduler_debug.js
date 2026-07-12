@@ -1,11 +1,11 @@
 'use strict';
 
-const { IntervalMap } = require('./intervalMap');
+const { IntervalMap } = require('./src/services/intervalMap');
 const {
   buildWeightTable,
   pickRoom,
   filterByType,
-} = require('./roomSelector');
+} = require('./src/services/roomSelector');
 
 /**
  * scheduler — the CSP backtracking core (build prompt §5).
@@ -255,7 +255,7 @@ function unavailabilityForDay(map, teacherAbbr, day) {
  *   budget     — max node expansions (default 200_000)
  *   logger     — ({iterations, depth}) => void, optional debug hook
  */
-function _solveCore(input, options = {}) {
+function solve(input, options = {}) {
   const rng = options.rng || DEFAULT_RNG;
   const budget = options.budget ?? DEFAULT_BUDGET;
   const logger = options.logger || (() => { });
@@ -761,7 +761,10 @@ function _solveCore(input, options = {}) {
 
     const perDay = new Map(); // day -> Array<{ slots, freeRoomIds }>
     for (const day of workingDays) {
-      if (usedDays.has(day)) continue;
+      if (!(global.DEBUG_FLAGS && global.DEBUG_FLAGS.disableDistinctDay) && usedDays.has(day)) {
+        if (global.STATS) { global.STATS.branchesPruned++; global.STATS.pruneReasons['distinct_day_prune'] = (global.STATS.pruneReasons['distinct_day_prune'] || 0) + 1; }
+        continue;
+      }
       const daySlots = slotsForDayBy50[day];
       if (!daySlots) continue;
       for (let i = 0; i < daySlots.length; i++) {
@@ -857,6 +860,7 @@ function _solveCore(input, options = {}) {
    * `courseUsedDays` is from the outer closure, initialized before placeCourse(0).
    */
   function preservesFeasibility(course, day, slots, roomId) {
+    if (global.DEBUG_FLAGS && global.DEBUG_FLAGS.disablePreserves) return true;
     if (morningOnlyLabCourseSet.size === 0) return true; // no morning-only courses
     if (!morningOnlyLabRooms.has(roomId)) return true;   // not a contested room type
 
@@ -906,7 +910,12 @@ function _solveCore(input, options = {}) {
     }
 
     // Prune: not enough free morning starts left for remaining morning-only courses.
-    return freeAfterCommit >= stillNeeded;
+    const res = freeAfterCommit >= stillNeeded;
+    if (!res && global.STATS) {
+      global.STATS.branchesPruned++;
+      global.STATS.pruneReasons['preservesFeasibility'] = (global.STATS.pruneReasons['preservesFeasibility'] || 0) + 1;
+    }
+    return res;
   }
 
   function rankRoomsByPreference(roomIds, course, weightTable) {
@@ -927,6 +936,11 @@ function _solveCore(input, options = {}) {
   }
 
   function placeCourse(idx) {
+    if (global.STATS) {
+      global.STATS.nodesExpanded++;
+      global.STATS.depth++;
+      if (global.STATS.depth > global.STATS.maxRecursionDepth) global.STATS.maxRecursionDepth = global.STATS.depth;
+    }
     iterations += 1;
     if (iterations > budget) {
       // [FIX-4] Informative budget-exceeded: name the course we were trying to place.
@@ -954,8 +968,10 @@ function _solveCore(input, options = {}) {
     // Lookahead prune for distinct-day constraint
     const remainingDays = workingDays.length - usedDays.size;
     const remainingSessions = course.derived_classes_per_week;
-    if (remainingDays < remainingSessions) {
+    if (!(global.DEBUG_FLAGS && global.DEBUG_FLAGS.disableLookAhead) && remainingDays < remainingSessions) {
+      if (global.STATS) { global.STATS.branchesPruned++; global.STATS.pruneReasons['look_ahead_course'] = (global.STATS.pruneReasons['look_ahead_course'] || 0) + 1; }
       failingCourses.add(course.course_code);
+      if (global.STATS) global.STATS.depth--;
       return false;
     }
 
@@ -968,8 +984,15 @@ function _solveCore(input, options = {}) {
     const candidates = enumerateCandidates(course, usedDays);
     let cIdx = 0;
     if (candidates.length === 0) {
+      if (global.STATS) { global.STATS.branchesPruned++; global.STATS.pruneReasons['no_candidates_course'] = (global.STATS.pruneReasons['no_candidates_course'] || 0) + 1; }
       failingCourses.add(course.course_code);
+      if (global.STATS) global.STATS.depth--;
       return false;
+    }
+    
+    if (global.STATS) {
+      global.STATS.candidatesCount++;
+      global.STATS.candidatesGenerated += candidates.length;
     }
 
     const duration = Number(course.derived_duration_min) || 50;
@@ -1003,15 +1026,33 @@ function _solveCore(input, options = {}) {
       commitOne(course, cand.day, cand.slots, cand.roomId, 0);
       usedDays.add(cand.day);
 
+      const _ss_teacher = teacherBusy.size();
+      const _ss_room = roomBusy.size();
+      const _ss_sem = semBusy.size();
+      const _ss_assign = assignments.length;
+      let _ss_used = 0;
+      for (const v of courseUsedDays.values()) _ss_used += v.size;
+
       const restOk = placeSessionsThenRest(course, idx, 1);
-      if (restOk) return true;
+      if (restOk) { if (global.STATS) global.STATS.depth--; return true; }
 
       undoLastAssignment(slotsNeeded);
       usedDays.delete(cand.day);
+
+      const _as_teacher = teacherBusy.size();
+      const _as_room = roomBusy.size();
+      const _as_sem = semBusy.size();
+      const _as_assign = assignments.length;
+      let _as_used = 0;
+      for (const v of courseUsedDays.values()) _as_used += v.size;
+      if (_ss_teacher !== _as_teacher || _ss_room !== _as_room || _ss_sem !== _as_sem || _ss_assign !== _as_assign || _ss_used !== _as_used) {
+         console.error("STATE LEAK IN placeCourse");
+      }
       cIdx += 1;
     }
 
     failingCourses.add(course.course_code);
+    if (global.STATS) global.STATS.depth--;
     return false;
   }
 
@@ -1049,16 +1090,6 @@ function _solveCore(input, options = {}) {
     const duration = Number(course.derived_duration_min) || 50;
     const slotsNeeded = Math.max(1, Math.round(duration / 50));
 
-    for (let s = sessionFrom; s < total; s += 1) {
-      const candidates = enumerateCandidates(course, usedDays);
-      if (candidates.length === 0) return false;
-      let cIdx = 0;
-      let sessionPlaced = false;
-      while (cIdx < candidates.length) {
-        const cand = candidates[cIdx];
-
-        let slotsFree = true;
-        for (const slot of cand.slots) {
           if (!slotIsFree(course, cand.day, slot)) {
             slotsFree = false;
             break;
@@ -1164,37 +1195,6 @@ function _solveCore(input, options = {}) {
 
   return assignments;
 }
-
-  /**
-   * Public entry point wrapper with Rapid Randomized Restarts.
-   * Because candidate generation relies on Math.random (rngShuffle), the solver
-   * has a heavy-tailed runtime distribution (some paths take 10ms, others take >2M iterations).
-   * Restarts bypass the dead ends and guarantee fast discovery of the solution.
-   */
-  function solve(input, options = {}) {
-    const globalBudget = options.budget ?? DEFAULT_BUDGET;
-    
-    // RAPID RANDOMIZED RESTARTS
-    const maxRestarts = 20;
-    const budgetPerRestart = Math.floor(globalBudget / maxRestarts); 
-    let lastError = null;
-    
-    for (let restart = 1; restart <= maxRestarts; restart++) {
-      try {
-        return _solveCore(input, { ...options, budget: budgetPerRestart });
-      } catch (e) {
-        if (e instanceof SchedulingError && e.message.includes('Exceeded search budget')) {
-          lastError = e;
-          // We hit a heavy-tailed dead end. The loop will restart and RNG will pick a new path.
-          continue; 
-        }
-        // Genuine infeasibility (no schedule found at all)
-        throw e;
-      }
-    }
-    
-    throw lastError; // If all restarts exhaust their budgets, fail
-  }
 
 /**
  * Calculates a "perfectness" score out of 10 for a given set of assignments.

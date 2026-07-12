@@ -1,5 +1,4 @@
--- Initial schema for the CSE Routine Generator
--- (verbatim from PROJECT_BUILD_PROMPT.md section 2)
+
 
 CREATE TABLE IF NOT EXISTS upload_batches (
   id          INT AUTO_INCREMENT PRIMARY KEY,
@@ -74,7 +73,7 @@ CREATE TABLE IF NOT EXISTS room_preference (
 CREATE TABLE IF NOT EXISTS teacher_unavailability (
   id              INT AUTO_INCREMENT PRIMARY KEY,
   teacher_abbr    VARCHAR(10) NOT NULL,
-  day             ENUM('SUN','MON','TUE','WED','THU','FRI','SAT') NOT NULL,
+  day             ENUM('SUN','MON','TUE','WED','THU') NOT NULL,
   start_time      TIME NOT NULL,
   end_time        TIME NOT NULL,
   upload_batch_id INT NOT NULL,
