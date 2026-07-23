@@ -10,18 +10,18 @@
     "test": "jest --runInBand --colors=false"
   },
   "dependencies": {
-    "cors": "^2.8.5",
+    "cors": "^2.8.6",
     "docx": "^9.7.1",
-    "dotenv": "^16.4.5",
-    "express": "^4.21.0",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.2",
     "multer": "^1.4.5-lts.1",
-    "mysql2": "^3.11.3",
-    "openai": "^6.45.0",
+    "mysql2": "^3.22.6",
+    "openai": "^6.46.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "jest": "^29.7.0",
-    "supertest": "^7.0.0"
+    "supertest": "^7.2.2"
   },
   "jest": {
     "testEnvironment": "node",

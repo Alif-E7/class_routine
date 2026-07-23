@@ -863,15 +863,26 @@ function _solveCore(input, options = {}) {
     const commitStart = slots[0].start;
     if (commitStart >= breakStartMin) return true;        // afternoon — no morning impact
 
-    // Count how many morning-only courses still need a placement.
+    // Count how many morning-only SESSIONS still need a morning placement.
+    //
+    // [FIX] The original code added 1 per course regardless of how many
+    // sessions that course still needed (sessions_per_week - sessions_placed).
+    // For a course with derived_classes_per_week=2 and 0 sessions placed, the
+    // correct contribution is +2, not +1. Under-counting stillNeeded allowed
+    // commits that leave too few morning slots for all remaining sessions,
+    // causing the backtracker to explore millions of dead-end branches before
+    // hitting the budget limit. Fixed by summing remaining sessions per course.
+    //
+    // [FIX] replaced ordered.find() O(N) with O(1) map lookup.
     let stillNeeded = 0;
     for (const code of morningOnlyLabCourseSet) {
-      const c = ordered.find((cc) => cc.course_code === code);
+      const c = orderedByCode.get(code);
       if (!c) continue;
-      const usedDays = courseUsedDays.get(code);
-      if (!usedDays || usedDays.size < c.derived_classes_per_week) stillNeeded++;
+      const ud = courseUsedDays.get(code);
+      const sessionsLeft = c.derived_classes_per_week - (ud ? ud.size : 0);
+      if (sessionsLeft > 0) stillNeeded += sessionsLeft;
     }
-    // This commit will place one session of the current course.
+    // Subtract 1 for the single session being committed right now.
     if (morningOnlyLabCourseSet.has(course.course_code)) {
       stillNeeded = Math.max(0, stillNeeded - 1);
     }
@@ -925,6 +936,10 @@ function _solveCore(input, options = {}) {
       return a.rIdx - b.rIdx; // Random tie-breaker to toggle rooms
     }).map(x => x.id);
   }
+
+  // O(1) lookup map for ordered[].find() inside preservesFeasibility().
+  // Pre-built once here; the ordered array is never mutated after this point.
+  const orderedByCode = new Map(ordered.map((c) => [c.course_code, c]));
 
   function placeCourse(idx) {
     iterations += 1;
