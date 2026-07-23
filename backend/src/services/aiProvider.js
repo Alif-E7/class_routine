@@ -383,10 +383,10 @@ async function callProvider(promptOrMessages, opts = {}) {
   // Try multiple free models in case of rate limits (429) or temporary outages (502/503)
   const modelsToTry = [
     baseModel,
-    'tencent/hy3:free',
-    'google/gemma-4-26b-a4b-it:free',
     'meta-llama/llama-3.3-70b-instruct:free',
-    'qwen/qwen3-next-80b-a3b-instruct:free'
+    'qwen/qwen3-next-80b-a3b-instruct:free',
+    'google/gemma-4-26b-a4b-it:free',
+    'nousresearch/hermes-3-llama-3.1-405b:free'
   ].filter((v, i, a) => a.indexOf(v) === i);
 
   let lastErrorReason = null;
@@ -450,10 +450,10 @@ async function callProvider(promptOrMessages, opts = {}) {
         lastErrorReason = `http_${status}`;
         lastJson = json;
 
-        if (status === 429 || status === 502 || status === 503) {
-          continue;
+        if (status === 401 || status === 403) {
+          return { available: true, reason: `http_${status}`, text: null, json };
         }
-        return { available: true, reason: `http_${status}`, text: null, json };
+        continue;
       }
     } catch (err) {
       clearTimeout(t);
