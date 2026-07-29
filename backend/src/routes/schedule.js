@@ -309,10 +309,14 @@ router.get('/:id/schedule', async (req, res, next) => {
       });
     }
     const [rows] = await getPool().query(
-      `SELECT course_code, teacher_abbr, room_id, day,
-              slot_start, slot_end, year_sem, session_index
-       FROM schedules WHERE batch_id = ?
-       ORDER BY year_sem, day, slot_start, course_code`,
+      `SELECT s.course_code, s.teacher_abbr, s.room_id, s.day,
+              s.slot_start, s.slot_end, s.year_sem, s.session_index,
+              c.course_name
+       FROM schedules s
+       LEFT JOIN courses c
+         ON c.course_code = s.course_code AND c.upload_batch_id = s.batch_id
+       WHERE s.batch_id = ?
+       ORDER BY s.year_sem, s.day, s.slot_start, s.course_code`,
       [batchId]
     );
     // Query config rows

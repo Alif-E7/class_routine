@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -22,6 +22,8 @@ import { batchesApi, routineApi, exportApi, editApi, explainApi } from '../api/c
 import RoutineGrid from '../components/RoutineGrid';
 import SpreadsheetEditor from '../components/SpreadsheetEditor';
 import FloatingAiChat from '../components/FloatingAiChat';
+import CourseDetailModal from '../components/CourseDetailModal';
+import RoutineFilterBar from '../components/RoutineFilterBar';
 import domtoimage from 'dom-to-image-more';
 import { jsPDF } from 'jspdf';
 
@@ -54,6 +56,26 @@ const RoutinePage = () => {
   });
   const [yearSemList, setYearSemList] = useState([]);
   const [dayList, setDayList] = useState([]);
+
+  // Filter state
+  const [routineFilters, setRoutineFilters] = useState({ teacher: '', day: '', time: '', course: '' });
+
+  // Course detail modal state
+  const [selectedCell, setSelectedCell] = useState(null);
+
+  // Filtered assignments derived from raw assignments + filters
+  const filteredAssignments = useMemo(() => {
+    if (!routineFilters.teacher && !routineFilters.day && !routineFilters.time && !routineFilters.course) {
+      return assignments;
+    }
+    return assignments.filter((a) => {
+      if (routineFilters.teacher && a.teacher_abbr !== routineFilters.teacher) return false;
+      if (routineFilters.day && a.day !== routineFilters.day) return false;
+      if (routineFilters.time && String(a.slot_start) !== String(routineFilters.time)) return false;
+      if (routineFilters.course && a.course_code !== routineFilters.course) return false;
+      return true;
+    });
+  }, [assignments, routineFilters]);
 
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -336,15 +358,26 @@ const RoutinePage = () => {
 
 
 
+      {/* Filter bar — only shown when schedule exists */}
+      {hasSchedule && (
+        <RoutineFilterBar
+          assignments={assignments}
+          teachers={teachers}
+          filters={routineFilters}
+          onFilter={setRoutineFilters}
+        />
+      )}
+
       {/* Routine grid */}
       <div id="routine-pdf-container">
         <RoutineGrid
-          assignments={assignments}
+          assignments={filteredAssignments}
           header={header}
           teachers={teachers}
           config={config}
           yearSemList={yearSemList}
           dayList={dayList}
+          onCellClick={setSelectedCell}
         />
       </div>
 
@@ -384,6 +417,15 @@ const RoutinePage = () => {
 
       {/* Floating AI Chat Widget */}
       <FloatingAiChat batchId={batchId} score={score} hasSchedule={hasSchedule} />
+
+      {/* Course Detail Modal */}
+      {selectedCell && (
+        <CourseDetailModal
+          entry={selectedCell}
+          teachers={teachers}
+          onClose={() => setSelectedCell(null)}
+        />
+      )}
     </div>
   );
 };

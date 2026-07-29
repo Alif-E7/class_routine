@@ -87,7 +87,7 @@ function hmToMin(t) {
   return Number.isNaN(parsed) ? NaN : parsed;
 }
 
-const RoutineGrid = ({ assignments = [], header, teachers = [], config, yearSemList = [], dayList = [] }) => {
+const RoutineGrid = ({ assignments = [], header, teachers = [], config, yearSemList = [], dayList = [], onCellClick }) => {
   const daysToRender = dayList.length > 0 ? dayList : ['SUN', 'MON', 'TUE', 'WED', 'THU'];
   const yearsToRender = yearSemList.length > 0 ? yearSemList : ['4-1', '3-2', '2-2', '2-1', '1-1'];
 
@@ -285,7 +285,7 @@ const RoutineGrid = ({ assignments = [], header, teachers = [], config, yearSemL
                       key={`m-${slot.start}`}
                       className="border-r border-b border-blue-900 p-0 align-stretch"
                     >
-                      {renderCell(cell)}
+                      {renderCell(cell, onCellClick)}
                     </td>
                   );
                 })}
@@ -305,7 +305,7 @@ const RoutineGrid = ({ assignments = [], header, teachers = [], config, yearSemL
                       key={`a-${slot.start}`}
                       className="border-r border-b border-blue-900 p-0 align-stretch"
                     >
-                      {renderCell(cell)}
+                      {renderCell(cell, onCellClick)}
                     </td>
                   );
                 })}
@@ -320,25 +320,29 @@ const RoutineGrid = ({ assignments = [], header, teachers = [], config, yearSemL
   );
 };
 
-function renderCell(cell) {
+function renderCell(cell, onCellClick) {
   if (!cell) return <div className="w-full h-14" />;
   if (cell._merged) {
     return (
       <div className="w-full flex flex-col">
         {cell._merged.map((m, i) => (
-          <CellBody key={i} entry={m} />
+          <CellBody key={i} entry={m} onCellClick={onCellClick} />
         ))}
       </div>
     );
   }
-  return <CellBody entry={cell} />;
+  return <CellBody entry={cell} onCellClick={onCellClick} />;
 }
 
-function CellBody({ entry }) {
+function CellBody({ entry, onCellClick }) {
   const colorClass = getCourseColorClass(entry.course_code);
+  const isClickable = typeof onCellClick === 'function';
   return (
     <div
-      className={`w-full h-14 ${colorClass} flex flex-col items-center justify-center px-1 py-1 gap-1`}
+      onClick={isClickable ? () => onCellClick(entry) : undefined}
+      title={isClickable ? `Click to view details for ${entry.course_code}` : undefined}
+      className={`w-full h-14 ${colorClass} flex flex-col items-center justify-center px-1 py-1 gap-1
+        ${isClickable ? 'cursor-pointer hover:ring-2 hover:ring-inset hover:ring-blue-400 hover:brightness-95 transition-all duration-100' : ''}`}
     >
       <div className="flex flex-row items-center justify-center gap-1.5 flex-wrap w-full leading-tight">
         <span className="text-[11px] font-bold text-slate-800 text-center whitespace-nowrap">

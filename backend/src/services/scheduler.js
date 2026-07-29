@@ -627,6 +627,24 @@ function _solveCore(input, options = {}) {
   const semBusy = new IntervalMap();
   const assignments = [];
 
+  // ── Batch daily class-count cap ───────────────────────────────────────
+  // semDayCount["year_sem|day"] = number of class slots committed so far.
+  // Hard limit: MAX_CLASSES_PER_BATCH_PER_DAY (default 4).
+  const MAX_CLASSES_PER_BATCH_PER_DAY = 4;
+  const semDayCount = new Map(); // key: "year_sem|day" → count (integer)
+
+  function semDayKey(yearSem, day) { return `${yearSem}|${day}`; }
+  function getSemDayCount(yearSem, day) { return semDayCount.get(semDayKey(yearSem, day)) || 0; }
+  function incSemDayCount(yearSem, day) {
+    const k = semDayKey(yearSem, day);
+    semDayCount.set(k, (semDayCount.get(k) || 0) + 1);
+  }
+  function decSemDayCount(yearSem, day) {
+    const k = semDayKey(yearSem, day);
+    const v = (semDayCount.get(k) || 0) - 1;
+    if (v <= 0) semDayCount.delete(k); else semDayCount.set(k, v);
+  }
+
   // Failure diagnostics: populated at the moment we exhaust a
   // course's candidates so SchedulingError.details can distinguish
   // courses that actually failed placement (failing) from courses
@@ -662,8 +680,16 @@ function _solveCore(input, options = {}) {
     }
     if (teacherBusy.overlaps(`${course.teacher_abbr}|${day}`, slot.start, slot.end)) return false;
     if (semBusy.overlaps(`${course.year_sem}|${day}`, slot.start, slot.end)) return false;
+
+    // ── Batch daily cap (Hard Constraint) ─────────────────────────────
+    // A batch (year_sem) may receive at most MAX_CLASSES_PER_BATCH_PER_DAY
+    // classes per day regardless of period or time.
+    if (getSemDayCount(course.year_sem, day) >= MAX_CLASSES_PER_BATCH_PER_DAY) return false;
+
     return true;
   }
+
+
 
   function commitOne(course, day, slots, roomId, sessionIndex) {
     const teacherKey = `${course.teacher_abbr}|${day}`;
@@ -680,6 +706,7 @@ function _solveCore(input, options = {}) {
     teacherBusy.add(teacherKey, start, end);
     roomBusy.add(roomKey, start, end);
     semBusy.add(semKey, start, end);
+    incSemDayCount(course.year_sem, day); // track per-batch daily class count
 
     for (let k = 0; k < slots.length; k++) {
       const slot = slots[k];
@@ -713,6 +740,7 @@ function _solveCore(input, options = {}) {
     teacherBusy.remove(`${first.teacher_abbr}|${first.day}`, first.slot_start, last.slot_end);
     roomBusy.remove(`${first.room_id}|${first.day}`, first.slot_start, last.slot_end);
     semBusy.remove(`${first.year_sem}|${first.day}`, first.slot_start, last.slot_end);
+    decSemDayCount(first.year_sem, first.day); // undo batch daily count
   }
 
   /**
@@ -728,6 +756,7 @@ function _solveCore(input, options = {}) {
       teacherBusy.remove(`${a.teacher_abbr}|${a.day}`, a.slot_start, a.slot_end);
       roomBusy.remove(`${a.room_id}|${a.day}`, a.slot_start, a.slot_end);
       semBusy.remove(`${a.year_sem}|${a.day}`, a.slot_start, a.slot_end);
+      decSemDayCount(a.year_sem, a.day); // undo batch daily count
     }
   }
 
