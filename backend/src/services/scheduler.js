@@ -124,18 +124,19 @@ function buildAvailableWindows(config, durationMinutes) {
   }
 
   const d = 50; // Always partition in 50-minute slots.
+  const gap = 10; // 10-minute break gap after each class period.
 
   if (Number.isNaN(bs) || Number.isNaN(be) || bs >= be || bs <= cs || be >= ce) {
     const bd = (be > bs) ? (be - bs) : 60;
     const totalMinutes = ce - cs;
-    const N = Math.floor((totalMinutes - bd) / d);
+    const N = Math.floor((totalMinutes - bd) / (d + gap));
     if (N > 0) {
       let morningSlotsCount = Math.ceil(N / 2);
-      bs = cs + morningSlotsCount * d;
+      bs = cs + morningSlotsCount * (d + gap);
       be = bs + bd;
       while (be > ce && morningSlotsCount > 0) {
         morningSlotsCount--;
-        bs = cs + morningSlotsCount * d;
+        bs = cs + morningSlotsCount * (d + gap);
         be = bs + bd;
       }
     } else {
@@ -155,11 +156,11 @@ function buildAvailableWindows(config, durationMinutes) {
   for (const day of days) {
     const slots = [];
     // First half — before break.
-    for (let t = cs; t + d <= bs; t += d) {
+    for (let t = cs; t + d <= bs; t += d + gap) {
       slots.push({ start: t, end: t + d });
     }
     // Second half — after break.
-    for (let t = be; t + d <= ce; t += d) {
+    for (let t = be; t + d <= ce; t += d + gap) {
       slots.push({ start: t, end: t + d });
     }
     out[day] = slots;
@@ -340,7 +341,7 @@ function _solveCore(input, options = {}) {
         for (let i = 0; i + slotsNeeded <= aftSlots.length; i++) {
           let ok = true;
           for (let k = 1; k < slotsNeeded; k++) {
-            if (aftSlots[i + k].start !== aftSlots[i + k - 1].end) { ok = false; break; }
+            if (aftSlots[i + k].start !== aftSlots[i + k - 1].end && aftSlots[i + k].start !== aftSlots[i + k - 1].end + 10) { ok = false; break; }
           }
           if (ok) { hasAfternoon = true; break outerPre; }
         }
@@ -391,7 +392,7 @@ function _solveCore(input, options = {}) {
           for (let i = 0; i + slotsNeeded <= morningSlots.length; i++) {
             let ok = true;
             for (let k = 1; k < slotsNeeded; k++) {
-              if (morningSlots[i + k].start !== morningSlots[i + k - 1].end) { ok = false; break; }
+              if (morningSlots[i + k].start !== morningSlots[i + k - 1].end && morningSlots[i + k].start !== morningSlots[i + k - 1].end + 10) { ok = false; break; }
             }
             if (ok) {
               morningCombos += eligibleRooms.length;
@@ -402,7 +403,7 @@ function _solveCore(input, options = {}) {
           for (let i = 0; i + slotsNeeded <= afternoonSlots.length; i++) {
             let ok = true;
             for (let k = 1; k < slotsNeeded; k++) {
-              if (afternoonSlots[i + k].start !== afternoonSlots[i + k - 1].end) { ok = false; break; }
+              if (afternoonSlots[i + k].start !== afternoonSlots[i + k - 1].end && afternoonSlots[i + k].start !== afternoonSlots[i + k - 1].end + 10) { ok = false; break; }
             }
             if (ok) {
               afternoonCombos += eligibleRooms.length;
@@ -473,7 +474,7 @@ function _solveCore(input, options = {}) {
       let consecutive = 0;
       let maxOnDay = 0;
       for (let i = 0; i < daySlots.length; i++) {
-        if (i === 0 || daySlots[i].start === daySlots[i - 1].end) {
+        if (i === 0 || daySlots[i].start === daySlots[i - 1].end || daySlots[i].start === daySlots[i - 1].end + 10) {
           consecutive += 1;
         } else {
           consecutive = 1;
@@ -629,8 +630,8 @@ function _solveCore(input, options = {}) {
 
   // ── Batch daily class-count cap ───────────────────────────────────────
   // semDayCount["year_sem|day"] = number of class slots committed so far.
-  // Hard limit: MAX_CLASSES_PER_BATCH_PER_DAY (default 4).
-  const MAX_CLASSES_PER_BATCH_PER_DAY = 4;
+  // Dynamic hard limit: maxClassesPerDay (defaults to 4 -> 5 -> 6 -> Infinity).
+  const MAX_CLASSES_PER_BATCH_PER_DAY = options.maxClassesPerDay ?? Infinity;
   const semDayCount = new Map(); // key: "year_sem|day" → count (integer)
 
   function semDayKey(yearSem, day) { return `${yearSem}|${day}`; }
@@ -767,7 +768,7 @@ function _solveCore(input, options = {}) {
       const slot = daySlots[startIndex + k];
       if (k > 0) {
         const prev = selected[k - 1];
-        if (slot.start !== prev.end) {
+        if (slot.start !== prev.end && slot.start !== prev.end + 10) {
           return null;
         }
       }
@@ -841,7 +842,21 @@ function _solveCore(input, options = {}) {
     const out = [];
     for (const day of days) {
       // Shuffle the time slots to toggle class_time period!
-      const dayEntries = rngShuffle(perDay.get(day));
+      let dayEntries = rngShuffle(perDay.get(day));
+      // Prioritize morning (pre-break) slots for Lab courses
+      if (course.derived_type === 'lab') {
+        const morn = [];
+        const aft = [];
+        for (const entry of dayEntries) {
+          const slotEnd = entry.slots[entry.slots.length - 1].end;
+          if (slotEnd <= breakStartMin) {
+            morn.push(entry);
+          } else {
+            aft.push(entry);
+          }
+        }
+        dayEntries = [...morn, ...aft];
+      }
       for (const { slots, freeRoomIds } of dayEntries) {
         const ranked = rankRoomsByPreference(
           freeRoomIds,
@@ -933,7 +948,7 @@ function _solveCore(input, options = {}) {
           // Verify the N slots are consecutive (no gap across break boundary)
           let consec = true;
           for (let k = 1; k < maxMorningSlotsNeeded; k++) {
-            if (morn[i + k].start !== morn[i + k - 1].end) { consec = false; break; }
+            if (morn[i + k].start !== morn[i + k - 1].end && morn[i + k].start !== morn[i + k - 1].end + 10) { consec = false; break; }
           }
           if (!consec) continue;
           // Already occupied by a committed assignment?
@@ -1210,34 +1225,51 @@ function _solveCore(input, options = {}) {
 }
 
   /**
-   * Public entry point wrapper with Rapid Randomized Restarts.
-   * Because candidate generation relies on Math.random (rngShuffle), the solver
-   * has a heavy-tailed runtime distribution (some paths take 10ms, others take >2M iterations).
-   * Restarts bypass the dead ends and guarantee fast discovery of the solution.
+   * Public entry point wrapper with Rapid Randomized Restarts & Progressive Cap Search.
+   * Progressively attempts to schedule with daily class cap of 4, then 5, then 6, then Infinity,
+   * running randomized restarts to maximize the overall perfectness rating.
    */
   function solve(input, options = {}) {
     const globalBudget = options.budget ?? DEFAULT_BUDGET;
     
-    // RAPID RANDOMIZED RESTARTS
-    const maxRestarts = 20;
-    const budgetPerRestart = Math.floor(globalBudget / maxRestarts); 
+    // Progressive daily class cap tiers: try 4 first, then 5, then 6, then Infinity.
+    const capTiers = [4, 5, 6, Infinity];
+    let bestResult = null;
+    let bestScore = -1;
     let lastError = null;
-    
-    for (let restart = 1; restart <= maxRestarts; restart++) {
-      try {
-        return _solveCore(input, { ...options, budget: budgetPerRestart });
-      } catch (e) {
-        if (e instanceof SchedulingError && e.message.includes('Exceeded search budget')) {
-          lastError = e;
-          // We hit a heavy-tailed dead end. The loop will restart and RNG will pick a new path.
-          continue; 
+
+    for (const maxClassesPerDay of capTiers) {
+      const maxRestartsForTier = 10;
+      const budgetPerRestart = Math.floor(globalBudget / (capTiers.length * maxRestartsForTier));
+
+      for (let restart = 1; restart <= maxRestartsForTier; restart++) {
+        try {
+          const result = _solveCore(input, {
+            ...options,
+            maxClassesPerDay,
+            budget: Math.max(10000, budgetPerRestart),
+          });
+          const score = calculateScore(result, input);
+          if (score > bestScore) {
+            bestScore = score;
+            bestResult = result;
+          }
+        } catch (e) {
+          if (e instanceof SchedulingError) {
+            lastError = e;
+            continue;
+          }
+          throw e;
         }
-        // Genuine infeasibility (no schedule found at all)
-        throw e;
+      }
+
+      // If a valid schedule was found for this daily class cap tier, return the schedule with the highest score!
+      if (bestResult !== null) {
+        return bestResult;
       }
     }
-    
-    throw lastError; // If all restarts exhaust their budgets, fail
+
+    throw lastError || new SchedulingError('No feasible schedule found for the given inputs');
   }
 
 /**
@@ -1315,6 +1347,18 @@ function calculateScore(assignments, input) {
     } else {
       totalPoints += (assignedRoomWeight / maxRoomWeight) * 100;
       maxPoints += 100;
+    }
+
+    // 3. Evaluate Lab Before Break Preference (max 100 points per lab session)
+    if (course.derived_type === 'lab') {
+      const breakStart = parseTime((input.config && input.config.break_start) || '12:30');
+      if (a.slot_end <= breakStart) {
+        totalPoints += 100;
+        maxPoints += 100;
+      } else {
+        totalPoints += 0;
+        maxPoints += 100;
+      }
     }
   }
 

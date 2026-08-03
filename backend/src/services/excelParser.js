@@ -71,6 +71,8 @@ const CANONICAL = {
   // Config (key/value)
   key:            'key',
   value:          'value',
+  // Dropdown list helper column
+  list:           'list',
 };
 
 // Aliases (case-insensitive, whitespace-stripped) → canonical.
