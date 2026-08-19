@@ -7,8 +7,8 @@ const { closePool } = require('./db/pool');
 const port = Number(process.env.PORT) || 4000;
 const app = createApp();
 
-const server = app.listen(port, () => {
-  console.log(`[backend] listening on http://localhost:${port}`);
+const server = app.listen(port, '0.0.0.0', () => {
+  console.log(`[backend] listening on http://0.0.0.0:${port}`);
   console.log(`         health: GET /api/health`);
   console.log(`         upload: POST /api/upload  (multipart .xlsx)`);
 });

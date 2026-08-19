@@ -28,6 +28,8 @@ function createApp() {
     next();
   });
 
+  app.get('/', (_req, res) => res.json({ status: 'ok', service: 'class-routine-backend' }));
+  app.get('/health', (_req, res) => res.json({ status: 'ok' }));
   app.use('/api/contents', express.static(path.join(__dirname, '../contents')));
   app.use('/api/health', healthRoutes);
   app.use('/api/upload', uploadRoutes);
