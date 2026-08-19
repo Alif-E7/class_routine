@@ -12,6 +12,11 @@ let pool = null;
 
 function getPool() {
   if (pool) return pool;
+  const dbUrl = process.env.MYSQL_URL || process.env.DATABASE_URL || process.env.MYSQL_PRIVATE_URL;
+  if (dbUrl) {
+    pool = mysql.createPool(dbUrl);
+    return pool;
+  }
   pool = mysql.createPool({
     host: process.env.DB_HOST || process.env.MYSQLHOST || 'localhost',
     port: Number(process.env.DB_PORT || process.env.MYSQLPORT) || 3306,
@@ -23,10 +28,6 @@ function getPool() {
     queueLimit: 0,
     multipleStatements: false,
     dateStrings: true,
-    // Fail fast instead of hanging the HTTP request for the default ~60s
-    // when DB credentials/host are wrong. The global error handler in app.js
-    // converts the resulting ECONNREFUSED/ER_ACCESS_DENIED_ERROR into a
-    // clean 503 with a useful code.
     connectTimeout: 5_000,
   });
   return pool;

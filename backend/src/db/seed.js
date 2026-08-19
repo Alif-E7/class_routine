@@ -33,13 +33,17 @@ async function main() {
     .update(password)
     .digest('hex');
 
-  const conn = await mysql.createConnection({
-    host:     process.env.DB_HOST     || process.env.MYSQLHOST || 'localhost',
-    port:     Number(process.env.DB_PORT || process.env.MYSQLPORT) || 3306,
-    user:     process.env.DB_MIGRATE_USER || process.env.DB_USER || process.env.MYSQLUSER || 'root',
-    password: process.env.DB_MIGRATE_PASSWORD || process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || '',
-    database: process.env.DB_NAME     || process.env.MYSQLDATABASE || 'routine_generator',
-  });
+  const dbUrl = process.env.MYSQL_URL || process.env.DATABASE_URL || process.env.MYSQL_PRIVATE_URL;
+
+  const conn = dbUrl
+    ? await mysql.createConnection(dbUrl)
+    : await mysql.createConnection({
+        host:     process.env.DB_HOST     || process.env.MYSQLHOST || 'localhost',
+        port:     Number(process.env.DB_PORT || process.env.MYSQLPORT) || 3306,
+        user:     process.env.DB_MIGRATE_USER || process.env.DB_USER || process.env.MYSQLUSER || 'root',
+        password: process.env.DB_MIGRATE_PASSWORD || process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || '',
+        database: process.env.DB_NAME     || process.env.MYSQLDATABASE || 'routine_generator',
+      });
 
   try {
     // Ensure users table exists (migration may not have run yet)

@@ -29,14 +29,18 @@ async function main() {
     process.env.MYSQLPASSWORD ||
     '';
 
-  const conn = await mysql.createConnection({
-    host: process.env.DB_HOST || process.env.MYSQLHOST || 'localhost',
-    port: Number(process.env.DB_PORT || process.env.MYSQLPORT) || 3306,
-    user,
-    password,
-    database: dbName,
-    multipleStatements: true,
-  });
+  const dbUrl = process.env.MYSQL_URL || process.env.DATABASE_URL || process.env.MYSQL_PRIVATE_URL;
+
+  const conn = dbUrl
+    ? await mysql.createConnection({ uri: dbUrl, multipleStatements: true })
+    : await mysql.createConnection({
+        host: process.env.DB_HOST || process.env.MYSQLHOST || 'localhost',
+        port: Number(process.env.DB_PORT || process.env.MYSQLPORT) || 3306,
+        user,
+        password,
+        database: dbName,
+        multipleStatements: true,
+      });
 
   await conn.query(`
     CREATE TABLE IF NOT EXISTS _migrations (
