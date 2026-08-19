@@ -261,9 +261,42 @@ function withBorders(cell) {
 // Header (3-row university block)
 // ---------------------------------------------------------------------------
 
+function formatHeaderSemester(year, semester) {
+  const semStr = (semester || '').trim();
+  const yrStr = year ? String(year).trim() : '';
+
+  if (!semStr && !yrStr) return '';
+
+  if (/^\d{4}-/.test(semStr)) {
+    return ` (${semStr})`;
+  }
+
+  if (/^\d{4}\s+[A-Za-z]+$/.test(semStr)) {
+    return ` (${semStr.replace(/\s+/, '-')})`;
+  }
+
+  if (/^\d{4}\s/.test(semStr)) {
+    return ` (${semStr})`;
+  }
+
+  if (/\b\d{4}\b/.test(semStr)) {
+    return ` (${semStr})`;
+  }
+
+  if (yrStr && semStr) {
+    return ` (${yrStr}-${semStr})`;
+  }
+
+  if (yrStr) {
+    return ` (${yrStr})`;
+  }
+
+  return ` (${semStr})`;
+}
+
 function buildUniversityHeaderTable(header) {
-  const deptText = (header.department ? `Department of ${header.department}` : 'Department') +
-    (header.semester ? ` (${header.semester})` : '');
+  const semText = formatHeaderSemester(header.year, header.semester);
+  const deptText = (header.department ? `Department of ${header.department}` : 'Department') + semText;
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
@@ -702,7 +735,11 @@ async function generateRoutinePdf(input) {
     sections: [{
       properties: {
         page: {
-          size: { orientation: PageOrientation.LANDSCAPE },
+          size: {
+            orientation: PageOrientation.LANDSCAPE,
+            width: 20160,  // Legal landscape width (14 inches in twips)
+            height: 12240, // Legal landscape height (8.5 inches in twips)
+          },
           margin: { top: 720, right: 720, bottom: 720, left: 720 },
         },
       },

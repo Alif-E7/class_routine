@@ -35,18 +35,28 @@ function fmtTime(t) {
 const DAY_ORDER = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 
 const RoutineFilterBar = ({ assignments = [], teachers = [], filters = {}, onFilter }) => {
-  // Derive distinct values from current assignments
+  // Derive distinct values from current assignments (and filter courses by selected teacher)
   const { days, timeSlots, courses } = useMemo(() => {
     const daySet = new Set();
     const timeMap = new Map(); // slot_start -> { start, end }
-    const courseSet = new Set();
+    const courseMap = new Map(); // course_code -> { code, name }
 
     for (const a of assignments) {
       if (a.day) daySet.add(a.day);
       if (a.slot_start != null && !timeMap.has(String(a.slot_start))) {
         timeMap.set(String(a.slot_start), { start: a.slot_start, end: a.slot_end });
       }
-      if (a.course_code) courseSet.add(a.course_code);
+      if (a.course_code) {
+        // If a teacher filter is active, only include courses taught by that selected teacher
+        if (!filters.teacher || a.teacher_abbr === filters.teacher) {
+          if (!courseMap.has(a.course_code)) {
+            courseMap.set(a.course_code, {
+              code: a.course_code,
+              name: a.course_name || '',
+            });
+          }
+        }
+      }
     }
 
     const days = DAY_ORDER.filter((d) => daySet.has(d));
@@ -58,16 +68,28 @@ const RoutineFilterBar = ({ assignments = [], teachers = [], filters = {}, onFil
       };
       return toMin(a.start) - toMin(b.start);
     });
-    const courses = Array.from(courseSet).sort();
+    const courses = Array.from(courseMap.values()).sort((a, b) => a.code.localeCompare(b.code));
 
     return { days, timeSlots, courses };
-  }, [assignments]);
+  }, [assignments, filters.teacher]);
 
   const hasFilters =
     filters.teacher || filters.day || filters.time || filters.course;
 
   const handleChange = (key, value) => {
-    onFilter({ ...filters, [key]: value });
+    if (key === 'teacher') {
+      // When teacher changes, clear course filter if the course is not taught by the new teacher
+      let nextCourse = filters.course || '';
+      if (value && nextCourse) {
+        const isTaught = assignments.some(
+          (a) => a.teacher_abbr === value && a.course_code === nextCourse
+        );
+        if (!isTaught) nextCourse = '';
+      }
+      onFilter({ ...filters, teacher: value, course: nextCourse });
+    } else {
+      onFilter({ ...filters, [key]: value });
+    }
   };
 
   const clearAll = () => {
@@ -167,7 +189,9 @@ const RoutineFilterBar = ({ assignments = [], teachers = [], filters = {}, onFil
           >
             <option value="">All Courses</option>
             {courses.map((c) => (
-              <option key={c} value={c}>{c}</option>
+              <option key={c.code} value={c.code}>
+                {c.name ? `${c.code} : ${c.name}` : c.code}
+              </option>
             ))}
           </select>
         </div>
@@ -194,12 +218,18 @@ const RoutineFilterBar = ({ assignments = [], teachers = [], filters = {}, onFil
               onRemove={() => handleChange('time', '')}
             />
           )}
-          {filters.course && (
-            <FilterChip
-              label={`Course: ${filters.course}`}
-              onRemove={() => handleChange('course', '')}
-            />
-          )}
+          {filters.course && (() => {
+            const match = courses.find((c) => c.code === filters.course);
+            const chipLabel = match?.name
+              ? `Course: ${match.code} : ${match.name}`
+              : `Course: ${filters.course}`;
+            return (
+              <FilterChip
+                label={chipLabel}
+                onRemove={() => handleChange('course', '')}
+              />
+            );
+          })()}
         </div>
       )}
     </div>

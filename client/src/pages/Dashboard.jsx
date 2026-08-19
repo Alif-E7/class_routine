@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { masterApi } from '../api/client';
 import { Layers, Trash2, Calendar, UploadCloud, Shield, AlertTriangle, Waves } from 'lucide-react';
 import FileUpload from '../components/FileUpload';
-import SpreadsheetEditor from '../components/SpreadsheetEditor';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api/client';
 import toast from 'react-hot-toast';
@@ -11,7 +10,6 @@ const Dashboard = () => {
   const [semesters, setSemesters] = useState([]);
   const [report, setReport] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
-  const [editingDept, setEditingDept] = useState(null);
   const { user } = useAuth();
 
   useEffect(() => { fetchSemesters(); }, []);
@@ -43,21 +41,8 @@ const Dashboard = () => {
     }
   };
 
-  const handleEditorClose = () => {
-    setEditingDept(null);
-    fetchSemesters(); // Refresh data in case it was updated
-  };
-
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
-      {editingDept && (
-        <SpreadsheetEditor
-          semesterId={editingDept.semesterId}
-          deptCode={editingDept.deptCode}
-          semesterName={editingDept.semesterName}
-          onClose={handleEditorClose}
-        />
-      )}
 
       {/* ── Page Header ── */}
       <div className="relative overflow-hidden rounded-2xl bg-linear-to-br from-ocean-900 to-ocean-800 px-8 py-6 shadow-lg border border-sky-500/15">
@@ -179,13 +164,12 @@ const Dashboard = () => {
                     {sem.departments.map(dept => (
                       <div
                         key={dept.id}
-                        onClick={() => setEditingDept({ semesterId: sem.id, deptCode: dept.deptCode, semesterName: sem.name })}
-                        className="bg-white p-5 rounded-xl border border-ocean-200 shadow-sm hover:shadow-md hover:border-ocean-400 hover:ring-2 hover:ring-ocean-100 transition-all cursor-pointer flex items-center justify-between group"
+                        className="bg-white p-5 rounded-xl border border-ocean-200 shadow-sm flex items-center justify-between"
                       >
                         <div>
                           <h4 className="font-bold text-ocean-800 text-lg">{dept.deptCode}</h4>
                         </div>
-                        <div className="bg-sky-50 text-sky-600 p-2 rounded-lg group-hover:bg-sky-500 group-hover:text-white transition-colors">
+                        <div className="bg-sky-50 text-sky-600 p-2 rounded-lg">
                           <Layers className="w-5 h-5" />
                         </div>
                       </div>

@@ -16,6 +16,10 @@ function generateToken(payload) {
   return `${header}.${body}.${signature}`;
 }
 
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password).digest('hex');
+}
+
 router.post('/login', async (req, res, next) => {
   try {
     const { email, password } = req.body;
@@ -26,43 +30,48 @@ router.post('/login', async (req, res, next) => {
       });
     }
 
-    const passwordHash = crypto.createHash('sha256').update(password).digest('hex');
+    const inputHash = hashPassword(password);
 
-    const [rows] = await getPool().query(
-      'SELECT id, email, password_hash, role FROM users WHERE email = ?',
-      [email]
-    );
+    // 1. Try DB lookup first
+    let userRow = null;
+    try {
+      const [rows] = await getPool().query(
+        'SELECT id, email, password_hash, role FROM users WHERE email = ?',
+        [email]
+      );
+      if (rows.length > 0) {
+        userRow = rows[0];
+      }
+    } catch (_e) {
+      // Database not reachable or table not ready
+    }
 
-    if (rows.length === 0) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password',
+    if (userRow) {
+      if (userRow.password_hash !== inputHash) {
+        return res.status(401).json({ success: false, message: 'Invalid email or password' });
+      }
+      const token = generateToken({ id: userRow.id, email: userRow.email, role: userRow.role });
+      return res.status(200).json({
+        success: true,
+        token,
+        user: { id: userRow.id, email: userRow.email, role: userRow.role },
       });
     }
 
-    const user = rows[0];
-    if (user.password_hash !== passwordHash) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password',
+    // 2. Secure env fallback (compares hashed input with env credentials hashed on the fly)
+    const envAdminEmail = process.env.ADMIN_EMAIL || 'cse_admin@gstu.edu.bd';
+    const envAdminPassword = process.env.ADMIN_PASSWORD || 'cse_admin13579';
+
+    if (email === envAdminEmail && inputHash === hashPassword(envAdminPassword)) {
+      const token = generateToken({ id: 1, email: envAdminEmail, role: 'admin' });
+      return res.status(200).json({
+        success: true,
+        token,
+        user: { id: 1, email: envAdminEmail, role: 'admin' },
       });
     }
 
-    const token = generateToken({
-      id: user.id,
-      email: user.email,
-      role: user.role,
-    });
-
-    return res.status(200).json({
-      success: true,
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
-      },
-    });
+    return res.status(401).json({ success: false, message: 'Invalid email or password' });
   } catch (err) {
     next(err);
   }

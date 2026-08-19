@@ -70,13 +70,13 @@ const CourseDetailModal = ({ entry, teachers = [], onClose }) => {
   return (
     /* Backdrop */
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
       style={{ backgroundColor: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
       onClick={onClose}
     >
       {/* Modal card */}
       <div
-        className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-fadeIn"
+        className="relative bg-white rounded-2xl shadow-2xl w-[calc(100vw-1.5rem)] max-w-md max-h-[90vh] flex flex-col overflow-hidden animate-fadeIn"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header band */}
@@ -110,7 +110,7 @@ const CourseDetailModal = ({ entry, teachers = [], onClose }) => {
         </div>
 
         {/* Body */}
-        <div className="p-6 space-y-4">
+        <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
 
           {/* Teacher */}
           <InfoRow icon={<User className="w-4 h-4 text-blue-600" />} label="Teacher">

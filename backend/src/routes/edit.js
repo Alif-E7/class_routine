@@ -134,7 +134,7 @@ router.post('/:id/edit', async (req, res, next) => {
         code: 'AI_UNAVAILABLE',
         message:
           'AI assist is not configured on this server (missing ' +
-          'GROQ_API_KEY). Set it in the backend .env and restart.',
+          'OPENROUTER_API_KEY). Set it in the backend .env and restart.',
         reason: 'no_api_key',
       });
     }
@@ -306,7 +306,7 @@ router.post('/:id/explain-error', async (req, res, next) => {
         success: false,
         code: 'AI_UNAVAILABLE',
         message:
-          'AI assist is not configured on this server (missing GROQ_API_KEY). ' +
+          'AI assist is not configured on this server (missing OPENROUTER_API_KEY). ' +
           'Set it in the backend .env and restart.',
         reason: 'no_api_key',
       });
@@ -335,7 +335,7 @@ router.post('/:id/explain-error', async (req, res, next) => {
       const reason = aiResult.reason || 'invalid_json';
 
       // Permission / config errors — the key is valid format but is
-      // being rejected by Groq. Not transient; the admin needs to
+      // being rejected by OpenRouter. Not transient; the admin needs to
       // fix the key (or pick a model the account has access to).
       // Surface as 503 with a clear message so the UI can guide
       // the admin instead of telling them to "try again".
@@ -345,9 +345,9 @@ router.post('/:id/explain-error', async (req, res, next) => {
           success: false,
           code: 'AI_UNAVAILABLE',
           message:
-            'The server\'s GROQ_API_KEY was rejected by Groq ' +
+            'The server\'s OPENROUTER_API_KEY was rejected by OpenRouter ' +
             '(HTTP 401/403/404). Verify the key is valid and that the ' +
-            'configured GROQ_MODEL is available for your account.',
+            'configured OPENROUTER_MODEL is available for your account.',
           reason: 'permission_denied',
           upstream_reason: reason,
         });

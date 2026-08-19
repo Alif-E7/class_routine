@@ -56,7 +56,7 @@ async function loadExportData(batchId) {
   const pool = getPool();
 
   const [[batchRow]] = await pool.query(
-    `SELECT id, filename, semester, status FROM upload_batches WHERE id = ?`,
+    `SELECT id, filename, year, semester, status FROM upload_batches WHERE id = ?`,
     [batchId]
   );
   if (!batchRow) {
@@ -249,6 +249,7 @@ router.get('/:id/export.pdf', async (req, res, next) => {
         university: loaded.config.university || 'University',
         department: loaded.config.department || 'Department',
         semester: loaded.config.semester || loaded.batch.semester || '',
+        year: loaded.config.year || loaded.batch.year || '',
       },
       teachers: loaded.teachers,
       config: loaded.config,

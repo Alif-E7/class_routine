@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  /* ── Blue Ocean Theme ── */
+  /* ── Brand Palette ── */
   --color-ocean-950: #03111f;
   --color-ocean-900: #071e38;
   --color-ocean-800: #0c2d52;
@@ -16,7 +16,7 @@
 
   --color-teal-ocean: #0891b2;
   --color-cyan-ocean: #06b6d4;
-  --color-foam:       #f0f9ff;
+  --color-foam:       #f7fbff;
 
   /* Legacy aliases kept for TimetableGrid */
   --color-university-primary:    #0c2d52;
@@ -28,11 +28,40 @@
   --color-routine-row-alt:       #f0f9ff;
   --color-routine-break:         #fde047;
   --color-routine-border:        #7dd3fc;
+
+  /* Typography */
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 @layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
   body {
-    @apply bg-ocean-50 text-slate-900 font-sans;
+    font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+    @apply bg-slate-50 text-slate-900;
+    letter-spacing: -0.01em;
+    background-image: linear-gradient(rgba(248, 250, 252, 0.65), rgba(248, 250, 252, 0.65)), url('/api/contents/448327753_989050353220059_5854889358078403488_n.jpg');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    letter-spacing: -0.025em;
+    font-weight: 700;
+  }
+
+  code, pre, kbd, samp {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
   }
 }
 
@@ -47,11 +76,45 @@
     text-orientation: upright;
   }
 
-  /* Course cell colors — ocean tints */
+  /* Course cell colors */
   .course-bg-0 { @apply bg-white; }
   .course-bg-1 { @apply bg-sky-50; }
   .course-bg-2 { @apply bg-cyan-50; }
   .course-bg-3 { @apply bg-teal-50; }
   .course-bg-4 { @apply bg-blue-50; }
   .course-bg-5 { @apply bg-indigo-50; }
+
+  /* Glass card utility */
+  .glass {
+    background: rgba(255,255,255,0.06);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.10);
+  }
+
+  /* Subtle card */
+  .card {
+    @apply bg-white border border-slate-200/80 rounded-2xl shadow-sm;
+  }
+
+  /* Section divider */
+  .section-divider {
+    @apply h-px bg-gradient-to-r from-transparent via-slate-200 to-transparent;
+  }
+}
+
+/* ── Scrollbar styling ── */
+* { -webkit-overflow-scrolling: touch; }
+
+::-webkit-scrollbar { height: 5px; width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(14,165,233,0.25); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(14,165,233,0.45); }
+
+/* ── Smooth page transitions ── */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.page-enter {
+  animation: fadeSlideUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
 }

@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   UploadCloud,
   CheckCircle2,
@@ -12,9 +14,13 @@ import {
   ChevronDown,
   ChevronUp,
   ClipboardCopy,
+  BookOpen,
+  Download,
+  Info,
+  Check,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { routineApi } from '../api/client';
+import { routineApi, templateApi } from '../api/client';
 
 /* ─── helpers ─── */
 const severityColor = (s) =>
@@ -37,14 +43,13 @@ function AiHintsPanel({ aiHints }) {
 
   return (
     <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50 overflow-hidden">
-      {/* header */}
       <button
         className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-violet-100 transition-colors"
         onClick={() => setOpen((p) => !p)}
       >
         <Sparkles className="w-4 h-4 text-violet-500 shrink-0" />
         <span className="font-semibold text-violet-800 text-sm flex-1">
-          AI Fix Guide (Groq)
+          AI Fix Guide
         </span>
         {open ? (
           <ChevronUp className="w-4 h-4 text-violet-400" />
@@ -98,6 +103,99 @@ function AiHintsPanel({ aiHints }) {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Bangla Upload Manual Component ─── */
+function BanglaManualSection() {
+  const [showManual, setShowManual] = useState(false);
+  const [manualContent, setManualContent] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (showManual && !manualContent && !loading) {
+      setLoading(true);
+      templateApi
+        .getManual()
+        .then((res) => {
+          if (res.data && res.data.success && res.data.content) {
+            setManualContent(res.data.content);
+          } else {
+            throw new Error('Invalid response shape');
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to load manual:', err);
+          setError('ম্যানুয়াল লোড করতে সমস্যা হয়েছে।');
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    }
+  }, [showManual, manualContent, loading]);
+
+  return (
+    <div className="bg-white rounded-2xl border border-sky-200/80 shadow-xs overflow-hidden transition-all">
+      <button
+        type="button"
+        onClick={() => setShowManual((prev) => !prev)}
+        className="w-full flex items-center justify-between px-6 py-4 bg-gradient-to-r from-sky-50 to-indigo-50/50 hover:from-sky-100/70 hover:to-indigo-100/50 transition-colors text-left cursor-pointer"
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-sky-500 text-white rounded-xl shadow-xs">
+            <BookOpen className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
+              এক্সেল ফাইল পূরণ নির্দেশিকা (Bangla Manual)
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              কীভাবে ৯টি শিট নির্ভুলভাবে তৈরি করবেন — বিস্তারিত নির্দেশিকা দেখুন
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-sky-700 text-xs font-bold bg-white px-3 py-1.5 rounded-lg border border-sky-200 shadow-2xs">
+          <span>{showManual ? 'ম্যানুয়াল বন্ধ করুন' : 'ম্যানুয়াল দেখুন'}</span>
+          {showManual ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        </div>
+      </button>
+
+      {showManual && (
+        <div className="p-6 text-slate-700 text-sm border-t border-sky-100 bg-white leading-relaxed">
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-8 text-sky-600 font-medium">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span>ম্যানুয়াল লোড হচ্ছে...</span>
+            </div>
+          ) : error ? (
+            <div className="p-4 bg-rose-50 text-rose-700 rounded-xl border border-rose-200 text-sm">
+              {error}
+            </div>
+          ) : (
+            <div className="prose prose-slate max-w-none space-y-4 manual-markdown-body">
+              <style>{`
+                .manual-markdown-body h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 1rem; color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 0.5rem; }
+                .manual-markdown-body h2 { font-size: 1.25rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: 0.75rem; color: #0369a1; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.35rem; }
+                .manual-markdown-body h3 { font-size: 1.1rem; font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.5rem; color: #334155; }
+                .manual-markdown-body p { margin-bottom: 0.75rem; line-height: 1.6; }
+                .manual-markdown-body ul { list-style-type: disc; margin-left: 1.5rem; margin-bottom: 1rem; }
+                .manual-markdown-body ol { list-style-type: decimal; margin-left: 1.5rem; margin-bottom: 1rem; }
+                .manual-markdown-body li { margin-bottom: 0.35rem; }
+                .manual-markdown-body blockquote { background: #f0f9ff; border-left: 4px solid #0284c7; padding: 0.75rem 1rem; margin: 1rem 0; border-radius: 0 0.5rem 0.5rem 0; color: #0369a1; }
+                .manual-markdown-body table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.875rem; border: 1px solid #cbd5e1; }
+                .manual-markdown-body th, .manual-markdown-body td { border: 1px solid #cbd5e1; padding: 0.6rem 0.85rem; text-align: left; }
+                .manual-markdown-body th { background-color: #f1f5f9; font-weight: 600; color: #0f172a; }
+                .manual-markdown-body code { background-color: #f1f5f9; color: #0369a1; padding: 0.15rem 0.4rem; border-radius: 0.25rem; font-size: 0.85em; font-family: monospace; }
+                .manual-markdown-body hr { border: 0; border-top: 1px solid #e2e8f0; margin: 1.5rem 0; }
+                .manual-markdown-body strong { color: #0f172a; }
+              `}</style>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{manualContent}</ReactMarkdown>
             </div>
           )}
         </div>
@@ -189,7 +287,7 @@ const UploadPage = () => {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       {/* header */}
-      <div className="bg-linear-to-br from-ocean-900 to-ocean-800 rounded-2xl px-6 py-5 text-white border border-sky-500/15 shadow-lg">
+      <div className="bg-gradient-to-br from-ocean-900 to-ocean-800 rounded-2xl px-6 py-5 text-white border border-sky-500/15 shadow-lg flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="bg-sky-400/20 p-2.5 rounded-xl border border-sky-400/20">
             <FileSpreadsheet className="w-5 h-5 text-sky-400" />
@@ -200,17 +298,29 @@ const UploadPage = () => {
             </p>
             <h1 className="text-2xl font-bold">Upload Routine Workbook</h1>
             <p className="text-sky-300 text-sm">
-              Upload the formatted .xlsx — 9 sheets (Teachers, Courses, Year_Sem, Rooms, Credit_Rules,
-              Room_Preference, Day_Preference, Teacher_Unavailability, Config).
+              Upload the formatted .xlsx (9 sheets) to generate class routines.
             </p>
           </div>
         </div>
+
+        {/* Download Routine Template Button */}
+        <a
+          href="/api/upload/template.xlsx"
+          download="Routine_Template.xlsx"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs rounded-xl shadow-md transition-all shrink-0 cursor-pointer"
+          title="Download sample pre-filled 9-sheet Excel workbook template"
+        >
+          <Download className="w-4 h-4" />
+          Download Routine Template (.xlsx)
+        </a>
       </div>
+
+      {/* ── Bangla Upload Manual Collapsible Section ── */}
+      <BanglaManualSection />
 
       {/* form */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
         <form onSubmit={handleSubmit} className="space-y-4">
-
 
           <div
             className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors cursor-pointer ${
@@ -255,7 +365,7 @@ const UploadPage = () => {
           <button
             type="submit"
             disabled={uploading || !file}
-            className="w-full py-3 bg-ocean-700 hover:bg-ocean-800 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-3 bg-ocean-700 hover:bg-ocean-800 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
           >
             {uploading ? (
               <>
@@ -311,7 +421,7 @@ const UploadPage = () => {
 
           <button
             onClick={() => navigate(`/batches/${success.batch_id}`)}
-            className="inline-flex items-center gap-2 bg-ocean-700 hover:bg-ocean-800 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+            className="inline-flex items-center gap-2 bg-ocean-700 hover:bg-ocean-800 text-white px-4 py-2 rounded-lg font-medium transition-colors cursor-pointer"
           >
             View batch #{success.batch_id} <ArrowRight className="w-4 h-4" />
           </button>
@@ -332,7 +442,7 @@ const UploadPage = () => {
             database (batch #{validation.batch_id} is in <em>needs_review</em>).
           </p>
 
-          {/* Groq AI fix hints */}
+          {/* OpenRouter AI fix hints */}
           <AiHintsPanel aiHints={validation.ai_hints} />
 
           {/* Error list */}
@@ -378,12 +488,14 @@ const UploadPage = () => {
             </div>
           )}
 
-          <button
-            onClick={() => navigate(`/batches/${validation.batch_id}`)}
-            className="mt-4 text-sm text-ocean-700 hover:text-ocean-900 underline"
-          >
-            View error log on batch #{validation.batch_id}
-          </button>
+          <div className="mt-5 flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => navigate(`/batches/${validation.batch_id}`)}
+              className="inline-flex items-center gap-2 bg-ocean-700 hover:bg-ocean-800 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors cursor-pointer"
+            >
+              View batch #{validation.batch_id} <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
     </div>

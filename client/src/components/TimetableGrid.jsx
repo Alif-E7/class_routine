@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { DAYS } from '../utils/constants';
 import { getCourseColorClass } from '../utils/colors';
+import { formatHeaderSemester } from './RoutineGrid';
 
 // Convert any "THU/THURSDAY/THR" → canonical "THR"
 const canonicalizeDay = (d) => {
@@ -17,7 +18,7 @@ const buildSectionLabel = (year, semester) => {
   return `${y}-${sm}`;
 };
 
-const TimetableGrid = ({ entries, semesterName, departmentName, universityName = 'University Name' }) => {
+const TimetableGrid = ({ entries, semesterName, yearName, departmentName, universityName = 'University Name' }) => {
   const processed = useMemo(() => {
     if (!entries || entries.length === 0) return null;
 
@@ -121,18 +122,22 @@ const TimetableGrid = ({ entries, semesterName, departmentName, universityName =
   const breakEndStr = hasBreak && afternoonSlots.length > 0 ? fmt(afternoonSlots[0].start) : '';
 
   return (
-    <div className="bg-white border border-blue-900 rounded-lg overflow-hidden shadow-md font-sans">
+    <div className="bg-white border border-blue-900 rounded-lg overflow-x-auto shadow-md font-sans touch-pan-x select-none mb-4">
+      {/* Mobile Horizontal Scroll Hint */}
+      <div className="md:hidden bg-sky-100 text-sky-900 text-xs px-3 py-2 border-b border-sky-300 flex items-center justify-between font-medium">
+        <span>👈 Swipe left/right to view all time slots 👉</span>
+      </div>
       <table className="w-full border-collapse min-w-[800px]">
         <thead>
           <tr>
-            <th colSpan={totalCols} className="bg-blue-900 text-white font-bold text-center py-3 text-2xl tracking-tight border-b-2 border-blue-950">
+            <th colSpan={totalCols} className="bg-blue-900 text-white font-bold text-center py-2 sm:py-3 text-lg sm:text-2xl tracking-tight border-b-2 border-blue-950 px-2">
               {universityName}
             </th>
           </tr>
           <tr>
-            <th colSpan={totalCols} className="bg-blue-800 text-white font-semibold text-center py-1.5 text-base border-b border-blue-900">
+            <th colSpan={totalCols} className="bg-blue-800 text-white font-semibold text-center py-1 sm:py-1.5 text-xs sm:text-base border-b border-blue-900 px-2">
               {departmentName === 'All Departments' || !departmentName ? 'All Departments' : `Department of ${departmentName}`}
-              {semesterName ? ` (${semesterName})` : ''}
+              {formatHeaderSemester(yearName, semesterName)}
             </th>
           </tr>
           <tr>

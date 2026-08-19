@@ -21,9 +21,9 @@ describe('GET /api/batches', () => {
 
   it('returns the list of batches with counts (newest first)', async () => {
     __pool.query.mockResolvedValueOnce([[
-      { id: 2, filename: 'r2.xlsx', semester: '2026', status: 'completed', created_at: '2026-07-01',
+      { id: 2, filename: 'r2.xlsx', faculty: 'Engineering', department: 'CSE', year: 2026, semester: '2026', status: 'completed', created_at: '2026-07-01',
         teachers_count: 5, courses_count: 7, rooms_count: 4, assignments_count: 21 },
-      { id: 1, filename: 'r1.xlsx', semester: '2025', status: 'needs_review', created_at: '2025-12-01',
+      { id: 1, filename: 'r1.xlsx', faculty: null, department: null, year: 2025, semester: '2025', status: 'needs_review', created_at: '2025-12-01',
         teachers_count: 0, courses_count: 0, rooms_count: 0, assignments_count: 0 },
     ]]);
 
@@ -32,7 +32,7 @@ describe('GET /api/batches', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.batches).toHaveLength(2);
     expect(res.body.batches[0]).toEqual({
-      id: 2, filename: 'r2.xlsx', semester: '2026', status: 'completed', created_at: '2026-07-01',
+      id: 2, filename: 'r2.xlsx', faculty: 'Engineering', department: 'CSE', year: 2026, semester: '2026', status: 'completed', created_at: '2026-07-01',
       counts: { teachers: 5, courses: 7, rooms: 4, assignments: 21 },
       has_schedule: true,
     });

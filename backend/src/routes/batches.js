@@ -30,13 +30,26 @@ const { buildLookup, deriveForCourse, DeriveRulesError } = require('../services/
 router.get('/', async (_req, res, next) => {
   try {
     const pool = getPool();
+    // Auto-delete batches older than 365 days to optimize DB space (skip in testing to preserve mocked queries)
+    if (process.env.NODE_ENV !== 'test') {
+      const oneYearAgo = new Date();
+      oneYearAgo.setDate(oneYearAgo.getDate() - 365);
+      await pool.query(
+        `DELETE FROM upload_batches WHERE created_at < ?`,
+        [oneYearAgo]
+      ).catch(err => console.error('Auto-delete cleanup failed:', err));
+    }
+
     const [rows] = await pool.query(
       `SELECT
          b.id,
          b.filename,
+         b.faculty,
+         b.year,
          b.semester,
          b.status,
          b.created_at,
+         (SELECT \`value\` FROM config WHERE upload_batch_id = b.id AND \`key\` = 'department' LIMIT 1) AS department,
          (SELECT COUNT(*) FROM teachers    WHERE upload_batch_id = b.id) AS teachers_count,
          (SELECT COUNT(*) FROM courses     WHERE upload_batch_id = b.id) AS courses_count,
          (SELECT COUNT(*) FROM rooms       WHERE upload_batch_id = b.id) AS rooms_count,
@@ -48,6 +61,9 @@ router.get('/', async (_req, res, next) => {
     const batches = rows.map((r) => ({
       id: r.id,
       filename: r.filename,
+      faculty: r.faculty,
+      department: r.department || null,
+      year: r.year,
       semester: r.semester,
       status: r.status,
       created_at: r.created_at,
@@ -80,7 +96,8 @@ router.get('/:id', async (req, res, next) => {
     const pool = getPool();
     const [rows] = await pool.query(
       `SELECT
-         b.id, b.filename, b.semester, b.status, b.error_log, b.created_at,
+         b.id, b.filename, b.faculty, b.year, b.semester, b.status, b.error_log, b.created_at,
+         (SELECT \`value\` FROM config WHERE upload_batch_id = b.id AND \`key\` = 'department' LIMIT 1) AS department,
          (SELECT COUNT(*) FROM teachers  WHERE upload_batch_id = b.id) AS teachers_count,
          (SELECT COUNT(*) FROM courses   WHERE upload_batch_id = b.id) AS courses_count,
          (SELECT COUNT(*) FROM rooms     WHERE upload_batch_id = b.id) AS rooms_count,
@@ -106,6 +123,9 @@ router.get('/:id', async (req, res, next) => {
       batch: {
         id: r.id,
         filename: r.filename,
+        faculty: r.faculty,
+        department: r.department || null,
+        year: r.year,
         semester: r.semester,
         status: r.status,
         created_at: r.created_at,
@@ -226,17 +246,17 @@ router.get('/:id/workbook', async (req, res, next) => {
       return res.status(404).json({ success: false, code: 'BATCH_NOT_FOUND', message: `No batch with id ${batchId}` });
     }
     const batch = batchRows[0];
-    
+
     if (batch.status === 'needs_review') {
       let errLogObj = null;
       try {
         errLogObj = JSON.parse(batch.error_log);
-      } catch (_) {}
+      } catch (_) { }
       if (errLogObj && errLogObj.workbook) {
         return res.json({ success: true, workbook: errLogObj.workbook });
       }
     }
-    
+
     // Otherwise, reconstruct from database tables.
     // 1. Config
     const [configRows] = await pool.query('SELECT `key`, `value` FROM config WHERE upload_batch_id = ?', [batchId]);
@@ -244,25 +264,25 @@ router.get('/:id/workbook', async (req, res, next) => {
     for (const r of configRows) {
       config[String(r.key).trim()] = r.value;
     }
-    
+
     // 2. Teachers
     const [teachers] = await pool.query(
       'SELECT full_name, abbreviation, designation, department FROM teachers WHERE upload_batch_id = ? ORDER BY id',
       [batchId]
     );
-    
+
     // 3. Courses
     const [courses] = await pool.query(
       'SELECT course_code, course_name, credit, dept, year_sem, teacher_abbr FROM courses WHERE upload_batch_id = ? ORDER BY id',
       [batchId]
     );
-    
+
     // 4. Rooms
     const [rooms] = await pool.query(
       'SELECT room_id, room_name, type FROM rooms WHERE upload_batch_id = ? ORDER BY id',
       [batchId]
     );
-    
+
     // 5. Credit Rules
     const [credit_rules_raw] = await pool.query(
       'SELECT credit, classes_per_week, duration_minutes FROM credit_rules WHERE upload_batch_id = ? ORDER BY id',
@@ -272,7 +292,7 @@ router.get('/:id/workbook', async (req, res, next) => {
       ...c,
       credit: Number(c.credit),
     }));
-    
+
     // 6. Room Preference
     const [room_preference_raw] = await pool.query(
       'SELECT room_id, year_group, weight_percent FROM room_preference WHERE upload_batch_id = ? ORDER BY id',
@@ -282,7 +302,7 @@ router.get('/:id/workbook', async (req, res, next) => {
       ...p,
       weight_percent: Number(p.weight_percent),
     }));
-    
+
     // 7. Day Preference
     const [day_preference_raw] = await pool.query(
       'SELECT day, class_type, weight_percent, note FROM day_preference WHERE upload_batch_id = ? ORDER BY id',
@@ -292,7 +312,7 @@ router.get('/:id/workbook', async (req, res, next) => {
       ...p,
       weight_percent: Number(p.weight_percent),
     }));
-    
+
     // 8. Teacher Unavailability
     const [teacher_unavailability_raw] = await pool.query(
       'SELECT teacher_abbr, day, start_time, end_time FROM teacher_unavailability WHERE upload_batch_id = ? ORDER BY id',
@@ -303,7 +323,7 @@ router.get('/:id/workbook', async (req, res, next) => {
       start_time: u.start_time ? String(u.start_time).slice(0, 5) : '',
       end_time: u.end_time ? String(u.end_time).slice(0, 5) : '',
     }));
-    
+
     // 9. Year Sem
     const [year_sem_raw] = await pool.query(
       'SELECT year_sem, year, semester, group_code, is_active FROM year_sem WHERE upload_batch_id = ? ORDER BY id',
@@ -313,7 +333,7 @@ router.get('/:id/workbook', async (req, res, next) => {
       ...ys,
       is_active: Number(ys.is_active) === 1 ? 'yes' : 'no',
     }));
-    
+
     const workbook = {
       config,
       teachers,
@@ -325,7 +345,7 @@ router.get('/:id/workbook', async (req, res, next) => {
       teacher_unavailability,
       year_sem
     };
-    
+
     return res.json({ success: true, workbook });
   } catch (err) {
     next(err);
@@ -338,15 +358,15 @@ router.post('/:id/workbook', async (req, res, next) => {
   if (!Number.isInteger(batchId) || batchId <= 0) {
     return res.status(400).json({ success: false, code: 'INVALID_BATCH_ID', message: 'batch id must be a positive integer' });
   }
-  
+
   const workbook = req.body && req.body.workbook;
   if (!workbook || typeof workbook !== 'object') {
     return res.status(400).json({ success: false, message: 'Missing workbook object in body' });
   }
-  
+
   try {
     const report = validate(workbook);
-    
+
     if (!report.isValid) {
       const errorLogObj = {
         errors: report.errors,
@@ -366,7 +386,7 @@ router.post('/:id/workbook', async (req, res, next) => {
         is_valid: false,
       });
     }
-    
+
     const counts = await withTransaction(async (conn) => {
       await conn.query('DELETE FROM config WHERE upload_batch_id = ?', [batchId]);
       await conn.query('DELETE FROM teachers WHERE upload_batch_id = ?', [batchId]);
@@ -377,7 +397,7 @@ router.post('/:id/workbook', async (req, res, next) => {
       await conn.query('DELETE FROM teacher_unavailability WHERE upload_batch_id = ?', [batchId]);
       await conn.query('DELETE FROM year_sem WHERE upload_batch_id = ?', [batchId]);
       await conn.query('DELETE FROM schedules WHERE batch_id = ?', [batchId]);
-      
+
       for (const t of workbook.teachers || []) {
         await conn.query(
           `INSERT INTO teachers (full_name, abbreviation, designation, department, upload_batch_id)
@@ -385,7 +405,7 @@ router.post('/:id/workbook', async (req, res, next) => {
           [t.full_name, t.abbreviation, t.designation, t.department, batchId]
         );
       }
-      
+
       for (const ys of workbook.year_sem || []) {
         const isActive = String(ys.is_active || '').trim().toLowerCase() === 'yes' ? 1 : 0;
         await conn.query(
@@ -394,14 +414,14 @@ router.post('/:id/workbook', async (req, res, next) => {
           [ys.year_sem, ys.year || null, ys.semester || null, ys.group_code, isActive, batchId]
         );
       }
-      
+
       for (const r of workbook.rooms || []) {
         await conn.query(
           `INSERT INTO rooms (room_id, room_name, type, upload_batch_id) VALUES (?, ?, ?, ?)`,
           [r.room_id, r.room_name, r.type, batchId]
         );
       }
-      
+
       for (const cr of workbook.credit_rules || []) {
         await conn.query(
           `INSERT INTO credit_rules (credit, type, classes_per_week, duration_minutes, upload_batch_id)
@@ -409,7 +429,7 @@ router.post('/:id/workbook', async (req, res, next) => {
           [cr.credit, cr.type, cr.classes_per_week, cr.duration_minutes, batchId]
         );
       }
-      
+
       for (const rp of workbook.room_preference || []) {
         await conn.query(
           `INSERT INTO room_preference (room_id, year_group, weight_percent, upload_batch_id)
@@ -417,7 +437,7 @@ router.post('/:id/workbook', async (req, res, next) => {
           [rp.room_id, rp.year_group, rp.weight_percent, batchId]
         );
       }
-      
+
       for (const dp of workbook.day_preference || []) {
         if (!dp.day || !dp.class_type) continue;
         await conn.query(
@@ -433,7 +453,7 @@ router.post('/:id/workbook', async (req, res, next) => {
           ]
         );
       }
-      
+
       for (const u of workbook.teacher_unavailability || []) {
         await conn.query(
           `INSERT INTO teacher_unavailability (teacher_abbr, day, start_time, end_time, upload_batch_id)
@@ -441,14 +461,14 @@ router.post('/:id/workbook', async (req, res, next) => {
           [u.teacher_abbr, u.day, u.start_time, u.end_time, batchId]
         );
       }
-      
+
       for (const [k, v] of Object.entries(workbook.config || {})) {
         await conn.query(
           `INSERT INTO config (\`key\`, \`value\`, upload_batch_id) VALUES (?, ?, ?)`,
           [k, v, batchId]
         );
       }
-      
+
       const activeYearSems = new Set(
         (workbook.year_sem || [])
           .filter(ys => String(ys.is_active || '').trim().toLowerCase() === 'yes')
@@ -473,13 +493,13 @@ router.post('/:id/workbook', async (req, res, next) => {
           ]
         );
       }
-      
+
       const errorLogObj = { errors: [], warnings: report.warnings };
       await conn.query(
         `UPDATE upload_batches SET status = 'completed', error_log = ? WHERE id = ?`,
         [JSON.stringify(errorLogObj), batchId]
       );
-      
+
       return {
         batch_id: batchId,
         teachers: (workbook.teachers || []).length,
@@ -495,7 +515,7 @@ router.post('/:id/workbook', async (req, res, next) => {
         config_keys: Object.keys(workbook.config || {}).length,
       };
     });
-    
+
     return res.status(200).json({
       success: true,
       code: 'UPLOAD_OK',

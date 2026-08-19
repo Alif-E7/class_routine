@@ -1,16 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageSquareText, X, Send, Sparkles, Loader2, AlertCircle, Minimize2, ChevronUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { editApi } from '../api/client';
 
 export function AiProposalCard({ proposal }) {
   if (!proposal) return null;
   const { kind, summary, change, question, concerns } = proposal;
   const kindLabel = {
-    proposed_change: 'Proposed change',
-    clarifying_question: 'Need more info',
-    explanation: 'Explanation',
-  }[kind] || 'Proposal';
+    proposed_change: 'প্রস্তাবিত পরিবর্তন',
+    clarifying_question: 'অতিরিক্ত তথ্য প্রয়োজন',
+    explanation: 'ব্যাখ্যা',
+  }[kind] || 'প্রস্তাবনা';
   const kindClasses = {
     proposed_change: 'bg-emerald-50 border-emerald-200 text-emerald-800',
     clarifying_question: 'bg-amber-50 border-amber-200 text-amber-800',
@@ -38,28 +39,28 @@ export function AiProposalCard({ proposal }) {
           </span>
         </div>
         <span className="text-[10px] opacity-60">
-          advisory only
+          পরামর্শমূলক
         </span>
       </div>
       {summary && (
         <div className="text-sm leading-relaxed font-medium mb-3 markdown-body">
-          <ReactMarkdown>{summary}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{summary}</ReactMarkdown>
         </div>
       )}
       {change && (
         <div className="bg-white/80 rounded-lg border border-current/10 px-3 py-2.5 text-xs font-mono leading-relaxed mt-1 shadow-inner">
-          <div className="font-semibold text-[10px] text-slate-500 uppercase tracking-wider mb-1">Proposed Edit Payload</div>
+          <div className="font-semibold text-[10px] text-slate-500 uppercase tracking-wider mb-1">প্রস্তাবিত পরিবর্তনের বিবরণ</div>
           <div>
-            <span className="opacity-60">course:</span> {change.course_code}
+            <span className="opacity-60">কোর্স:</span> {change.course_code}
           </div>
           <div>
-            <span className="opacity-60">from:</span> {change.from.day}{' '}
+            <span className="opacity-60">পূর্বের সময়:</span> {change.from.day}{' '}
             {String(change.from.slot_start).padStart(4, '0').replace(/^(\d{2})(\d{2})$/, '$1:$2')}
             –
             {String(change.from.slot_end).padStart(4, '0').replace(/^(\d{2})(\d{2})$/, '$1:$2')}
           </div>
           <div>
-            <span className="opacity-60">to:</span> {change.to.day}{' '}
+            <span className="opacity-60">নতুন সময়:</span> {change.to.day}{' '}
             {String(change.to.slot_start).padStart(4, '0').replace(/^(\d{2})(\d{2})$/, '$1:$2')}
             –
             {String(change.to.slot_end).padStart(4, '0').replace(/^(\d{2})(\d{2})$/, '$1:$2')}
@@ -74,7 +75,7 @@ export function AiProposalCard({ proposal }) {
       {Array.isArray(concerns) && concerns.length > 0 && (
         <details className="mt-3 bg-black/5 rounded-lg p-2.5 border border-black/5">
           <summary className="text-xs font-semibold cursor-pointer underline underline-offset-2 opacity-80 select-none">
-            {concerns.length} concern{concerns.length === 1 ? '' : 's'} flagged
+            {concerns.length} টি সতর্কতা চিহ্নিত করা হয়েছে
           </summary>
           <ul className="mt-2 list-disc list-inside text-xs leading-relaxed opacity-90 space-y-1">
             {concerns.map((c, i) => (
@@ -129,19 +130,19 @@ export default function FloatingAiChat({ batchId, score, hasSchedule }) {
       setMessages([...newMessages, { role: 'ai', proposal }]);
     } catch (err) {
       const code = err.code;
-      let msg = 'Failed to contact AI assistant.';
+      let msg = 'এআই অ্যাসিস্ট্যান্টের সাথে যোগাযোগ করা যায়নি।';
       if (code === 'AI_UNAVAILABLE') {
         msg = err.reason === 'no_api_key'
-          ? 'AI assist is not configured on the server. Set OPENROUTER_API_KEY in backend/.env to enable.'
-          : 'AI service is unavailable right now. Try again in a moment.';
+          ? 'সার্ভারে এআই কনফিগার করা নেই। backend/.env ফাইলে OPENROUTER_API_KEY প্রদান করুন।'
+          : 'এআই সার্ভিসটি এই মুহূর্তে অনুপলব্ধ। কিছুক্ষণ পর আবার চেষ্টা করুন।';
       } else if (code === 'AI_INVALID_RESPONSE') {
-        msg = 'The AI could not return a structured response. Try rewording it.';
+        msg = 'এআই থেকে সঠিক রেসপন্স পাওয়া যায়নি। প্রশ্নটি অন্যভাবে লিখে চেষ্টা করুন।';
       } else if (code === 'AI_RATE_LIMIT') {
-        msg = 'API Rate Limit exceeded. Please wait a moment before asking again.';
+        msg = 'এপিআই রেট লিমিট অতিক্রম করেছে। কিছু সময় পর চেষ্টা করুন।';
       } else if (code === 'AI_AUTH_ERROR') {
-        msg = 'API Key rejected. Please ensure your OPENROUTER_API_KEY is correct.';
+        msg = 'এপিআই কী (API Key) সঠিক নয়। OPENROUTER_API_KEY চেক করুন।';
       } else if (code === 'INVALID_PROMPT') {
-        msg = err.message || 'Prompt too short or too long.';
+        msg = err.message || 'প্রশ্নটি অত্যন্ত ছোট বা বড়।';
       } else if (err.message) {
         msg = err.message;
       }
@@ -155,13 +156,13 @@ export default function FloatingAiChat({ batchId, score, hasSchedule }) {
     sendText(inputValue);
   };
 
-  // Determine dynamic suggestions based on conversation state
+  // Determine dynamic suggestions in Bangla based on conversation state
   const getSuggestions = () => {
     if (messages.length === 0) {
       return [
-        { text: 'Explain schedule pros & cons', type: 'advisory' },
-        { text: 'How can we optimize room usage?', type: 'advisory' },
-        { text: 'Suggest a manual schedule change', type: 'act' }
+        { text: 'রুটিনের সুবিধা ও অসুবিধা ব্যাখ্যা করুন', type: 'advisory' },
+        { text: 'কীভাবে রুমের ব্যবহার অপ্টিমাইজ করা যায়?', type: 'advisory' },
+        { text: 'একটি রুটিন পরিবর্তনের প্রস্তাব দিন', type: 'act' }
       ];
     }
     const lastMsg = messages[messages.length - 1];
@@ -171,23 +172,23 @@ export default function FloatingAiChat({ batchId, score, hasSchedule }) {
       const { kind } = lastMsg.proposal;
       if (kind === 'proposed_change') {
         return [
-          { text: 'Check for teacher conflicts with this change', type: 'act' },
-          { text: 'Explain the benefits of this change', type: 'advisory' },
-          { text: 'Are there any alternative changes?', type: 'advisory' }
+          { text: 'শিক্ষকদের সমসাময়িক কোনো কনফ্লিক্ট আছে কি?', type: 'act' },
+          { text: 'এই পরিবর্তনের সুবিধাগুলি বুঝিয়ে বলুন', type: 'advisory' },
+          { text: 'অন্য কোনো বিকল্প পরিবর্তন আছে কি?', type: 'advisory' }
         ];
       }
       if (kind === 'explanation') {
         return [
-          { text: 'Suggest optimization changes', type: 'act' },
-          { text: 'Show teacher availability summary', type: 'advisory' },
-          { text: 'What is the schedule quality score?', type: 'advisory' }
+          { text: 'রুটিন অপ্টিমাইজেশনের প্রস্তাব দিন', type: 'act' },
+          { text: 'শিক্ষকদের লভ্যতার সামারি দেখান', type: 'advisory' },
+          { text: 'রুটিনের কোয়ালিটি স্কোর কত?', type: 'advisory' }
         ];
       }
     }
     return [
-      { text: 'Explain schedule quality score', type: 'advisory' },
-      { text: 'Check for room allocation conflicts', type: 'act' },
-      { text: 'Suggest a course rescheduling', type: 'act' }
+      { text: 'রুটিনের কোয়ালিটি স্কোর ব্যাখ্যা করুন', type: 'advisory' },
+      { text: 'রুম বরাদ্দকরণের কনফ্লিক্ট চেক করুন', type: 'act' },
+      { text: 'একটি কোর্সের সময় পুনর্নির্ধারণ করুন', type: 'act' }
     ];
   };
 
@@ -197,11 +198,11 @@ export default function FloatingAiChat({ batchId, score, hasSchedule }) {
     return (
       <div 
         onClick={() => setIsMinimized(false)}
-        className="print:hidden fixed bottom-6 right-6 w-80 bg-sky-600 hover:bg-sky-500 text-white rounded-xl shadow-2xl px-4 py-3 flex items-center justify-between cursor-pointer transition-all hover:scale-105 z-50 select-none border border-sky-400/20"
+        className="print:hidden fixed bottom-4 right-4 sm:bottom-6 sm:right-6 w-[calc(100vw-2rem)] sm:w-80 bg-sky-600 hover:bg-sky-500 text-white rounded-xl shadow-2xl px-4 py-3 flex items-center justify-between cursor-pointer transition-all hover:scale-105 z-50 select-none border border-sky-400/20"
       >
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-sky-200 animate-pulse" />
-          <span className="font-semibold text-xs tracking-wider uppercase">AI Assistant (Minimized)</span>
+          <span className="font-semibold text-xs tracking-wider uppercase">এআই সহকারী (মিনিমাইজড)</span>
         </div>
         <ChevronUp className="w-4 h-4" />
       </div>
@@ -213,35 +214,35 @@ export default function FloatingAiChat({ batchId, score, hasSchedule }) {
       {/* Floating Button */}
       <button
         onClick={() => setIsOpen(true)}
-        className={`print:hidden fixed bottom-6 right-6 p-4 rounded-full shadow-2xl bg-sky-600 hover:bg-sky-500 text-white transition-all transform hover:scale-105 z-40 ${isOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
-        aria-label="Open AI Assistant"
+        className={`print:hidden fixed bottom-4 right-4 sm:bottom-6 sm:right-6 p-3.5 sm:p-4 rounded-full shadow-2xl bg-sky-600 hover:bg-sky-500 text-white transition-all transform hover:scale-105 z-40 ${isOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+        aria-label="এআই সহকারী খুলুন"
       >
-        <Sparkles className="w-6 h-6 animate-pulse" />
+        <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 animate-pulse" />
       </button>
 
       {/* Chat Window */}
       <div
-        className={`print:hidden fixed bottom-6 right-6 w-[480px] h-[650px] max-h-[85vh] max-w-[95vw] bg-white rounded-2xl shadow-2xl flex flex-col border border-slate-200 transition-all transform z-50 origin-bottom-right ${isOpen ? 'scale-100 opacity-100' : 'scale-95 opacity-0 pointer-events-none'
+        className={`print:hidden fixed bottom-4 right-3 left-3 sm:left-auto sm:right-6 w-[calc(100vw-1.5rem)] sm:w-[480px] h-[520px] sm:h-[650px] max-h-[80vh] sm:max-h-[85vh] bg-white rounded-2xl shadow-2xl flex flex-col border border-slate-200 transition-all transform z-50 origin-bottom-right ${isOpen ? 'scale-100 opacity-100' : 'scale-95 opacity-0 pointer-events-none'
           }`}
       >
         {/* Header */}
         <div className="bg-linear-to-r from-sky-600 to-sky-700 p-4 rounded-t-2xl flex items-center justify-between text-white shadow-sm shrink-0">
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-sky-200" />
-            <h3 className="font-semibold text-sm">AI Assistant</h3>
+            <h3 className="font-semibold text-sm">এআই সহকারী (AI Assistant)</h3>
           </div>
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setIsMinimized(true)}
               className="p-1.5 hover:bg-white/20 rounded-md transition-colors"
-              title="Minimize chat"
+              title="মিনিমাইজ করুন"
             >
               <Minimize2 className="w-4.5 h-4.5" />
             </button>
             <button
               onClick={handleClose}
               className="p-1.5 hover:bg-white/20 rounded-md transition-colors"
-              aria-label="Close chat"
+              aria-label="চ্যাট বন্ধ করুন"
             >
               <X className="w-4.5 h-4.5" />
             </button>
@@ -254,9 +255,9 @@ export default function FloatingAiChat({ batchId, score, hasSchedule }) {
             <div className="text-center mt-12 space-y-4">
               <Sparkles className="w-12 h-12 text-sky-300 mx-auto animate-bounce" />
               <div className="space-y-1">
-                <h4 className="font-semibold text-slate-800 text-sm">Timetable Advisor</h4>
+                <h4 className="font-semibold text-slate-800 text-sm">রুটিন উপদেষ্টা</h4>
                 <p className="text-xs text-slate-500 px-8 leading-relaxed">
-                  Ask me about this routine's quality constraints, or suggest changes like "Reschedule CSE101 to Monday".
+                  এই রুটিনের কোয়ালিটি বা সীমাবদ্ধতা সম্পর্কে প্রশ্ন করুন, অথবা "CSE101 ক্লাসটি সোমবারে নিন" এর মতো কোনো পরিবর্তনের কথা বলুন।
                 </p>
               </div>
             </div>
@@ -318,7 +319,7 @@ export default function FloatingAiChat({ batchId, score, hasSchedule }) {
               type="text"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Ask anything..."
+              placeholder="বাংলা বা ইংরেজিতে প্রশ্ন করুন..."
               className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white transition-all pr-10"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {

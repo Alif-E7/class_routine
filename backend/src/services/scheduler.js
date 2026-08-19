@@ -96,20 +96,6 @@ function normalizeSlotValue(v) {
   return null;
 }
 
-/**
- * Split the daily window [class_start, class_end) minus the lunch break
- * [break_start, break_end) into discrete slots of `durationMinutes`.
- * Returns: { day -> [ { start, end } ] } ordered chronologically.
- *
- * `durationMinutes` is per-course (from courses.derived_duration_min),
- * not a Config column — Config only carries the global daily window
- * and break. We compute one slot map per distinct duration we see,
- * and cache it inside solve() via getDaySlots().
- *
- * The break is treated as a hard wall: a slot cannot start before
- * break_start and end after break_end (it would straddle lunch), but
- * the break window itself is excluded from the candidate slot list.
- */
 function buildAvailableWindows(config, durationMinutes) {
   const cs = parseTime(config.class_start);
   const ce = parseTime(config.class_end);
@@ -124,7 +110,21 @@ function buildAvailableWindows(config, durationMinutes) {
   }
 
   const d = 50; // Always partition in 50-minute slots.
-  const gap = 10; // 10-minute break gap after each class period.
+  const gap = 0; // No break gap after class periods (contiguous blocks: 9:00-9:50, 9:50-10:40, etc.).
+
+  // If class_start is 09:00, align break to 13:10-14:10 (1:10pm - 2:10pm)
+  // so all 5 morning slots (09:00-09:50, 09:50-10:40, 10:40-11:30, 11:30-12:20, 12:20-13:10)
+  // fit before the break, and afternoon slots start at 14:10 (2:10pm).
+  if (cs === 540) {
+    if (bs === 780 || Number.isNaN(bs)) {
+      bs = 790; // 13:10
+      config.break_start = '13:10';
+    }
+    if (be === 840 || Number.isNaN(be)) {
+      be = 850; // 14:10
+      config.break_end = '14:10';
+    }
+  }
 
   if (Number.isNaN(bs) || Number.isNaN(be) || bs >= be || bs <= cs || be >= ce) {
     const bd = (be > bs) ? (be - bs) : 60;
@@ -160,8 +160,14 @@ function buildAvailableWindows(config, durationMinutes) {
       slots.push({ start: t, end: t + d });
     }
     // Second half — after break.
-    for (let t = be; t + d <= ce; t += d + gap) {
-      slots.push({ start: t, end: t + d });
+    if (cs === 540 && be === 850 && ce === 960) {
+      // Special case: afternoon slots are 14:10 - 15:00 and 15:10 - 16:00
+      slots.push({ start: 850, end: 900 }); // 14:10 - 15:00
+      slots.push({ start: 910, end: 960 }); // 15:10 - 16:00
+    } else {
+      for (let t = be; t + d <= ce; t += d + gap) {
+        slots.push({ start: t, end: t + d });
+      }
     }
     out[day] = slots;
   }
@@ -646,6 +652,15 @@ function _solveCore(input, options = {}) {
     if (v <= 0) semDayCount.delete(k); else semDayCount.set(k, v);
   }
 
+  // Track overall global day counts to balance assignments across SUN,MON,TUE (55%) vs WED,THU (45%)
+  const globalDayCount = new Map();
+  function getGlobalDayCount(day) { return globalDayCount.get(day) || 0; }
+  function incGlobalDayCount(day) { globalDayCount.set(day, (globalDayCount.get(day) || 0) + 1); }
+  function decGlobalDayCount(day) {
+    const v = (globalDayCount.get(day) || 0) - 1;
+    if (v <= 0) globalDayCount.delete(day); else globalDayCount.set(day, v);
+  }
+
   // Failure diagnostics: populated at the moment we exhaust a
   // course's candidates so SchedulingError.details can distinguish
   // courses that actually failed placement (failing) from courses
@@ -708,6 +723,7 @@ function _solveCore(input, options = {}) {
     roomBusy.add(roomKey, start, end);
     semBusy.add(semKey, start, end);
     incSemDayCount(course.year_sem, day); // track per-batch daily class count
+    incGlobalDayCount(day); // track global day assignment count
 
     for (let k = 0; k < slots.length; k++) {
       const slot = slots[k];
@@ -742,6 +758,7 @@ function _solveCore(input, options = {}) {
     roomBusy.remove(`${first.room_id}|${first.day}`, first.slot_start, last.slot_end);
     semBusy.remove(`${first.year_sem}|${first.day}`, first.slot_start, last.slot_end);
     decSemDayCount(first.year_sem, first.day); // undo batch daily count
+    decGlobalDayCount(first.day); // undo global day assignment count
   }
 
   /**
@@ -758,6 +775,7 @@ function _solveCore(input, options = {}) {
       roomBusy.remove(`${a.room_id}|${a.day}`, a.slot_start, a.slot_end);
       semBusy.remove(`${a.year_sem}|${a.day}`, a.slot_start, a.slot_end);
       decSemDayCount(a.year_sem, a.day); // undo batch daily count
+      decGlobalDayCount(a.day); // undo global day assignment count
     }
   }
 
@@ -775,6 +793,93 @@ function _solveCore(input, options = {}) {
       selected.push(slot);
     }
     return selected;
+  }
+
+  function teacherHasThreeConsecutive(teacherAbbr, day, daySlots, selectedSlots) {
+    const teacherKey = `${teacherAbbr}|${day}`;
+    const selStarts = new Set(selectedSlots.map((s) => s.start));
+    for (let j = 0; j <= daySlots.length - 3; j++) {
+      const s0 = daySlots[j];
+      const s1 = daySlots[j + 1];
+      const s2 = daySlots[j + 2];
+      if (s1.start === s0.end && s2.start === s1.end) {
+        const busy0 = selStarts.has(s0.start) || teacherBusy.overlaps(teacherKey, s0.start, s0.end);
+        const busy1 = selStarts.has(s1.start) || teacherBusy.overlaps(teacherKey, s1.start, s1.end);
+        const busy2 = selStarts.has(s2.start) || teacherBusy.overlaps(teacherKey, s2.start, s2.end);
+        if (busy0 && busy1 && busy2) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function calculateBatchGapPenalty(course, day, candidateSlots) {
+    const existing = [];
+    for (const a of assignments) {
+      if (a.year_sem === course.year_sem && a.day === day) {
+        existing.push({ start: a.slot_start, end: a.slot_end });
+      }
+    }
+
+    const breakStart = breakStartMin; // 13:10
+    const breakEnd = breakEndMin;     // 14:10
+
+    if (existing.length === 0) {
+      const start = candidateSlots[0].start;
+      let offsetPenalty = 0;
+      if (start > 540 && start < breakStart) {
+        offsetPenalty = (start - 540) * 0.5; // prefer starting from 09:00 AM
+      } else if (start > breakEnd) {
+        offsetPenalty = (start - breakEnd) * 0.5; // prefer starting from 14:10 PM
+      }
+      return offsetPenalty;
+    }
+
+    const allSlots = [...existing, ...candidateSlots].sort((a, b) => a.start - b.start);
+    const blocks = [];
+    for (const s of allSlots) {
+      if (blocks.length === 0) {
+        blocks.push({ start: s.start, end: s.end });
+      } else {
+        const last = blocks[blocks.length - 1];
+        if (s.start <= last.end) {
+          last.end = Math.max(last.end, s.end);
+        } else {
+          blocks.push({ start: s.start, end: s.end });
+        }
+      }
+    }
+
+    let totalGapMinutes = 0;
+    let numGaps = 0;
+    let isolatedLatePenalty = 0;
+
+    for (let i = 0; i < blocks.length - 1; i++) {
+      const gStart = blocks[i].end;
+      const gEnd = blocks[i + 1].start;
+      if (gStart === breakStart && gEnd === breakEnd) {
+        continue; // official lunch break
+      }
+      if (gStart >= breakStart && gEnd <= breakEnd) {
+        continue; // inside lunch break window
+      }
+      const gapMin = gEnd - gStart;
+      if (gapMin > 0) {
+        totalGapMinutes += gapMin;
+        numGaps++;
+      }
+    }
+
+    const lastBlock = blocks[blocks.length - 1];
+    if (lastBlock.start >= breakEnd + 50 && blocks.length > 1) {
+      const prevBlockEnd = blocks[blocks.length - 2].end;
+      if (prevBlockEnd < lastBlock.start) {
+        isolatedLatePenalty = 300; // penalize isolated late afternoon class after a gap
+      }
+    }
+
+    return (totalGapMinutes * 5) + (numGaps * 150) + isolatedLatePenalty;
   }
 
   /**
@@ -807,6 +912,11 @@ function _solveCore(input, options = {}) {
         }
         if (!slotsFree) continue;
 
+        // Hard Constraint: A teacher must not take 3 consecutive 50-min classes on the same day
+        if (teacherHasThreeConsecutive(course.teacher_abbr, day, daySlots, selectedSlots)) {
+          continue;
+        }
+
         const start = selectedSlots[0].start;
         const end = selectedSlots[selectedSlots.length - 1].end;
         const freeRoomIds = [];
@@ -822,27 +932,39 @@ function _solveCore(input, options = {}) {
       }
     }
 
-    // ── Day ordering with soft Day_Preference bias (S-2) ──────────────
-    // Capitalised course type to match Day_Preference class_type values.
+    // ── Day ordering with 65% (SUN,MON,TUE) / 35% (WED,THU) load balancing & random jitter ─────────
+    const totalGlobalAssigned = Array.from(globalDayCount.values()).reduce((sum, v) => sum + v, 0);
+
+    const getTargetShare = (d) => {
+      const dayUpper = String(d).toUpperCase().trim();
+      if (['SUN', 'MON', 'TUE'].includes(dayUpper)) return 0.65 / 3; // ~0.2167 per day
+      if (['WED', 'THU'].includes(dayUpper)) return 0.35 / 2; // 0.1750 per day
+      return 1 / (workingDays.length || 5);
+    };
+
     const courseClassType = course.derived_type === 'lab' ? 'Lab' : 'Theory';
-    const daysData = [...perDay.keys()].map(d => ({ day: d, rIdx: rng() }));
-    const days = daysData.sort((a, b) => {
-      // Primary: descending bias weight for the course's class type.
-      // Days with no bias entry get weight 0 — they sort last.
-      const biasA = (dayBias[a.day] && dayBias[a.day][courseClassType]) || 0;
-      const biasB = (dayBias[b.day] && dayBias[b.day][courseClassType]) || 0;
-      if (biasB !== biasA) return biasB - biasA; // higher bias first
-      // Secondary: more slots → leaves more options for future assignments → earlier (LCV).
-      const diff = perDay.get(b.day).length - perDay.get(a.day).length;
-      if (diff !== 0) return diff;
-      // Tertiary: random tie-breaker instead of stable working-day order to toggle alternative options
-      return a.rIdx - b.rIdx;
-    }).map(d => d.day);
+    const daysData = [...perDay.keys()].map((d) => {
+      const targetShare = getTargetShare(d);
+      const actualRatio = totalGlobalAssigned > 0 ? (getGlobalDayCount(d) / totalGlobalAssigned) : 0;
+      const deficit = targetShare - actualRatio; // higher deficit means day needs more classes
+      const bias = (dayBias[d] && dayBias[d][courseClassType]) || 0;
+      // Score combines deficit (load balance), bias weight, and random jitter to eliminate rigid sequential assignment
+      const score = (deficit * 100) + (bias * 0.05) + (rng() * 3);
+      return { day: d, score };
+    });
+
+    const days = daysData.sort((a, b) => b.score - a.score).map((d) => d.day);
 
     const out = [];
     for (const day of days) {
-      // Shuffle the time slots to toggle class_time period!
-      let dayEntries = rngShuffle(perDay.get(day));
+      // Rank candidate time slots by batch compactness (minimizing gaps & eliminating isolated late classes)
+      let dayEntries = perDay.get(day).slice();
+      dayEntries.sort((a, b) => {
+        const penA = calculateBatchGapPenalty(course, day, a.slots) + (rng() * 2);
+        const penB = calculateBatchGapPenalty(course, day, b.slots) + (rng() * 2);
+        return penA - penB;
+      });
+
       // Prioritize morning (pre-break) slots for Lab courses
       if (course.derived_type === 'lab') {
         const morn = [];
@@ -1224,53 +1346,53 @@ function _solveCore(input, options = {}) {
   return assignments;
 }
 
-  /**
-   * Public entry point wrapper with Rapid Randomized Restarts & Progressive Cap Search.
-   * Progressively attempts to schedule with daily class cap of 4, then 5, then 6, then Infinity,
-   * running randomized restarts to maximize the overall perfectness rating.
-   */
-  function solve(input, options = {}) {
-    const globalBudget = options.budget ?? DEFAULT_BUDGET;
-    
-    // Progressive daily class cap tiers: try 4 first, then 5, then 6, then Infinity.
-    const capTiers = [4, 5, 6, Infinity];
-    let bestResult = null;
-    let bestScore = -1;
-    let lastError = null;
+/**
+ * Public entry point wrapper with Rapid Randomized Restarts & Progressive Cap Search.
+ * Progressively attempts to schedule with daily class cap of 4, then 5, then 6, then Infinity,
+ * running randomized restarts to maximize the overall perfectness rating.
+ */
+function solve(input, options = {}) {
+  const globalBudget = options.budget ?? DEFAULT_BUDGET;
 
-    for (const maxClassesPerDay of capTiers) {
-      const maxRestartsForTier = 10;
-      const budgetPerRestart = Math.floor(globalBudget / (capTiers.length * maxRestartsForTier));
+  // Progressive daily class cap tiers: try 4 first, then 5, then 6, then Infinity.
+  const capTiers = [4, 5, 6, Infinity];
+  let bestResult = null;
+  let bestScore = -1;
+  let lastError = null;
 
-      for (let restart = 1; restart <= maxRestartsForTier; restart++) {
-        try {
-          const result = _solveCore(input, {
-            ...options,
-            maxClassesPerDay,
-            budget: Math.max(10000, budgetPerRestart),
-          });
-          const score = calculateScore(result, input);
-          if (score > bestScore) {
-            bestScore = score;
-            bestResult = result;
-          }
-        } catch (e) {
-          if (e instanceof SchedulingError) {
-            lastError = e;
-            continue;
-          }
-          throw e;
+  for (const maxClassesPerDay of capTiers) {
+    const maxRestartsForTier = 10;
+    const budgetPerRestart = Math.floor(globalBudget / (capTiers.length * maxRestartsForTier));
+
+    for (let restart = 1; restart <= maxRestartsForTier; restart++) {
+      try {
+        const result = _solveCore(input, {
+          ...options,
+          maxClassesPerDay,
+          budget: Math.max(10000, budgetPerRestart),
+        });
+        const score = calculateScore(result, input);
+        if (score > bestScore) {
+          bestScore = score;
+          bestResult = result;
         }
-      }
-
-      // If a valid schedule was found for this daily class cap tier, return the schedule with the highest score!
-      if (bestResult !== null) {
-        return bestResult;
+      } catch (e) {
+        if (e instanceof SchedulingError) {
+          lastError = e;
+          continue;
+        }
+        throw e;
       }
     }
 
-    throw lastError || new SchedulingError('No feasible schedule found for the given inputs');
+    // If a valid schedule was found for this daily class cap tier, return the schedule with the highest score!
+    if (bestResult !== null) {
+      return bestResult;
+    }
   }
+
+  throw lastError || new SchedulingError('No feasible schedule found for the given inputs');
+}
 
 /**
  * Calculates a "perfectness" score out of 10 for a given set of assignments.
@@ -1279,11 +1401,11 @@ function _solveCore(input, options = {}) {
  */
 function calculateScore(assignments, input) {
   if (!assignments || assignments.length === 0) return 0;
-  
+
   // Rebuild maps for quick lookup
   const workingDays = String(input.config.working_days || '')
     .split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
-  
+
   const dayBias = {};
   for (const dp of (input.day_preference || [])) {
     if (!dp.day || !dp.class_type) continue;
@@ -1308,7 +1430,7 @@ function calculateScore(assignments, input) {
   for (const a of assignments) {
     const course = (input.courses || []).find(c => c.course_code === a.course_code);
     if (!course) continue;
-    
+
     const ct = course.derived_type === 'lab' ? 'Lab' : 'Theory';
 
     // 1. Evaluate Day Preference (max 100 points)
@@ -1340,7 +1462,7 @@ function calculateScore(assignments, input) {
       const w = prefMap[r.room_id] !== undefined ? prefMap[r.room_id] : 0;
       if (w > maxRoomWeight) maxRoomWeight = w;
     }
-    
+
     if (maxRoomWeight === 0) {
       totalPoints += 100;
       maxPoints += 100;

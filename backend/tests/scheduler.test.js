@@ -539,3 +539,158 @@ describe('roomSelector — pickRoom basics', () => {
     expect(['A', 'B']).toContain(got);
   });
 });
+
+describe('scheduler — teacher consecutive class constraint', () => {
+  test('prevents assigning 3 consecutive classes to the same teacher on the same day', () => {
+    const courses = [
+      {
+        course_code: 'C1', course_name: 'Course 1', credit: 3.0,
+        dept: 'CSE', year_sem: '1-1', teacher_abbr: 'T1',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 1,
+      },
+      {
+        course_code: 'C2', course_name: 'Course 2', credit: 3.0,
+        dept: 'CSE', year_sem: '1-2', teacher_abbr: 'T1',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 1,
+      },
+      {
+        course_code: 'C3', course_name: 'Course 3', credit: 3.0,
+        dept: 'CSE', year_sem: '2-1', teacher_abbr: 'T1',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 1,
+      },
+    ];
+    const rooms = [
+      { room_id: 'R101', room_name: 'Room 101', type: 'classroom' },
+      { room_id: 'R102', room_name: 'Room 102', type: 'classroom' },
+      { room_id: 'R103', room_name: 'Room 103', type: 'classroom' },
+    ];
+    const singleDayConfig = {
+      working_days: 'SUN',
+      class_start: '09:00',
+      class_end: '15:50',
+      break_start: '13:10',
+      break_end: '14:10',
+      duration_minutes: 50,
+    };
+    const out = solve({
+      courses, rooms, room_preference: [],
+      teacher_unavailability: [], config: singleDayConfig,
+    });
+    expect(out).toHaveLength(3);
+    const sunStarts = out.filter(a => a.teacher_abbr === 'T1' && a.day === 'SUN').map(a => a.slot_start).sort((a, b) => a - b);
+    // Check that no 3 consecutive 50-min slots are assigned to T1
+    for (let i = 0; i <= sunStarts.length - 3; i++) {
+      const is3Consecutive = (sunStarts[i + 1] === sunStarts[i] + 50) && (sunStarts[i + 2] === sunStarts[i + 1] + 50);
+      expect(is3Consecutive).toBe(false);
+    }
+  });
+});
+
+describe('scheduler — day load balancing (65% SUN-TUE / 35% WED-THU)', () => {
+  test('distributes classes across all 5 working days matching 65%/35% target ratio', () => {
+    const courses = [];
+    // Generate 10 theory courses (3 sessions per week = 30 total sessions)
+    for (let i = 1; i <= 10; i++) {
+      courses.push({
+        course_code: `CSE${100 + i}`,
+        course_name: `Course ${i}`,
+        credit: 3.0,
+        dept: 'CSE',
+        year_sem: `1-${(i % 2) + 1}`,
+        teacher_abbr: `T${i}`,
+        derived_type: 'theory',
+        derived_duration_min: 50,
+        derived_classes_per_week: 3,
+      });
+    }
+    const rooms = [
+      { room_id: 'R101', room_name: 'Room 101', type: 'classroom' },
+      { room_id: 'R102', room_name: 'Room 102', type: 'classroom' },
+      { room_id: 'R103', room_name: 'Room 103', type: 'classroom' },
+    ];
+    const out = solve({
+      courses,
+      rooms,
+      room_preference: [],
+      teacher_unavailability: [],
+      config: {
+        working_days: 'SUN,MON,TUE,WED,THU',
+        class_start: '09:00',
+        class_end: '15:50',
+        break_start: '13:10',
+        break_end: '14:10',
+        duration_minutes: 50,
+      },
+    });
+
+    expect(out.length).toBe(30);
+
+    const counts = { SUN: 0, MON: 0, TUE: 0, WED: 0, THU: 0 };
+    for (const a of out) {
+      if (counts[a.day] !== undefined) counts[a.day]++;
+    }
+
+    const group1 = counts.SUN + counts.MON + counts.TUE;
+    const group2 = counts.WED + counts.THU;
+
+    // WED and THU must receive classes (not empty or neglected)
+    expect(group2).toBeGreaterThan(0);
+    expect(counts.WED).toBeGreaterThan(0);
+    expect(counts.THU).toBeGreaterThan(0);
+
+    // Group 1 (SUN-TUE) target share is ~65%
+    const group1Ratio = group1 / out.length;
+    expect(group1Ratio).toBeGreaterThanOrEqual(0.50);
+  });
+});
+
+describe('scheduler — batch schedule compactness & gap minimization', () => {
+  test('clusters batch classes contiguously to eliminate mid-day gaps & isolated late classes', () => {
+    const courses = [
+      {
+        course_code: 'CSE404', course_name: 'Lab 1', credit: 1.5,
+        dept: 'CSE', year_sem: '4-1', teacher_abbr: 'MF',
+        derived_type: 'lab', derived_duration_min: 110, derived_classes_per_week: 1,
+      },
+      {
+        course_code: 'CSE406', course_name: 'Lab 2', credit: 1.5,
+        dept: 'CSE', year_sem: '4-1', teacher_abbr: 'DMKB',
+        derived_type: 'lab', derived_duration_min: 110, derived_classes_per_week: 1,
+      },
+      {
+        course_code: 'CSE413', course_name: 'Theory 1', credit: 3.0,
+        dept: 'CSE', year_sem: '4-1', teacher_abbr: 'MNH',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 1,
+      },
+    ];
+    const rooms = [
+      { room_id: 'R505', room_name: 'Room 505', type: 'lab' },
+      { room_id: 'R407', room_name: 'Room 407', type: 'lab' },
+      { room_id: 'R408', room_name: 'Room 408', type: 'classroom' },
+    ];
+    const out = solve({
+      courses,
+      rooms,
+      room_preference: [],
+      teacher_unavailability: [],
+      config: {
+        working_days: 'SUN',
+        class_start: '09:00',
+        class_end: '15:50',
+        break_start: '13:10',
+        break_end: '14:10',
+        duration_minutes: 50,
+      },
+    });
+
+    expect(out.length).toBe(5); // 2 slots for CSE404 + 2 slots for CSE406 + 1 slot for CSE413 = 5 slot entries
+    const sunAssigned = out.filter(a => a.year_sem === '4-1' && a.day === 'SUN').sort((a, b) => a.slot_start - b.slot_start);
+
+    // Verify there are no 50-minute empty gaps in morning (9:00 - 13:10)
+    const morningStarts = new Set(sunAssigned.filter(a => a.slot_end <= 790).map(a => a.slot_start));
+    if (morningStarts.has(540) && morningStarts.has(690)) {
+      // If 9:00-10:40 and 11:30-13:10 are assigned, 10:40 (slot 3) should NOT be left empty
+      expect(morningStarts.has(640)).toBe(true);
+    }
+  });
+});

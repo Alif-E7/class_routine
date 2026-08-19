@@ -5,25 +5,25 @@ import {
   Calendar,
   Loader2,
   Play,
-  RotateCw,
   Sparkles,
   AlertCircle,
   CheckCircle2,
-  FileSpreadsheet,
   FileText,
   FileDown,
+  FileSpreadsheet,
   MessageSquareText,
   ChevronDown,
   ChevronUp,
   Send,
+  BookmarkPlus,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { batchesApi, routineApi, exportApi, editApi, explainApi } from '../api/client';
 import RoutineGrid from '../components/RoutineGrid';
-import SpreadsheetEditor from '../components/SpreadsheetEditor';
 import FloatingAiChat from '../components/FloatingAiChat';
 import CourseDetailModal from '../components/CourseDetailModal';
 import RoutineFilterBar from '../components/RoutineFilterBar';
+import AddToClassRoutineModal from '../components/AddToClassRoutineModal';
 import domtoimage from 'dom-to-image-more';
 import { jsPDF } from 'jspdf';
 
@@ -48,12 +48,13 @@ const RoutinePage = () => {
   const [config, setConfig] = useState(null);
   const [score, setScore] = useState(null);
   const [teachers, setTeachers] = useState([]);
-  const [showEditor, setShowEditor] = useState(false);
-  const [header, setHeader] = useState({
+  const [showAddToClassRoutineModal, setShowAddToClassRoutineModal] = useState(false);  const [header, setHeader] = useState({
     university: 'University Name',
     department: 'Department',
     semester: '',
+    year: '',
   });
+
   const [yearSemList, setYearSemList] = useState([]);
   const [dayList, setDayList] = useState([]);
 
@@ -87,24 +88,31 @@ const RoutinePage = () => {
     setError(null);
     setFriendlyHint(null);
     try {
-      const [detailRes, scheduleRes] = await Promise.all([
-        batchesApi.detail(batchId),
-        routineApi.getRoutine(batchId),
-      ]);
-
+      const detailRes = await batchesApi.detail(batchId);
       const b = detailRes.data.batch;
       setBatch(b);
-      const configData = scheduleRes.data.config || null;
-      setHeader({
-        university: configData?.university || 'University Name',
-        department: configData?.department || 'Department',
-        semester: configData?.semester || b?.semester || '',
-      });
-      setAssignments(scheduleRes.data.assignments || []);
-      setConfig(configData);
-      setYearSemList(scheduleRes.data.year_sem_list || []);
-      setDayList(scheduleRes.data.day_list || []);
-      setScore(scheduleRes.data.score !== undefined ? scheduleRes.data.score : null);
+
+      try {
+        const scheduleRes = await routineApi.getRoutine(batchId);
+        const configData = scheduleRes.data.config || null;
+        setHeader({
+          university: configData?.university || 'University Name',
+          department: configData?.department || 'Department',
+          semester: configData?.semester || b?.semester || '',
+          year: configData?.year || b?.year || '',
+        });
+        setAssignments(scheduleRes.data.assignments || []);
+        setConfig(configData);
+        setYearSemList(scheduleRes.data.year_sem_list || []);
+        setDayList(scheduleRes.data.day_list || []);
+        setScore(scheduleRes.data.score !== undefined ? scheduleRes.data.score : null);
+      } catch (schedErr) {
+        // If schedule is not yet generated or batch is in review, keep batch header & errors accessible
+        setAssignments([]);
+        if (schedErr.code === 'BATCH_NOT_READY') {
+          setFriendlyHint(schedErr.message || 'This batch is currently under review.');
+        }
+      }
     } catch (err) {
       const status = err.response?.status;
       if (status === 404) {
@@ -182,32 +190,68 @@ const RoutinePage = () => {
       toast.error('Generate the routine first.');
       return;
     }
-    
+
     setDownloading('pdf');
     const tid = toast.loading('Generating PDF (this might take a few seconds)...');
-    
+
     try {
       const element = document.getElementById('routine-pdf-container');
       if (!element) throw new Error("Could not find the routine container.");
-      
+
       // We need to wait a tiny bit to ensure DOM is fully stable before capturing
       await new Promise(r => setTimeout(r, 100));
-      
-      const imgData = await domtoimage.toJpeg(element, { quality: 0.98, bgcolor: '#ffffff' });
-      
+
+      const scale = 2; // HD scale factor
+      const style = {
+        transform: `scale(${scale})`,
+        transformOrigin: 'top left',
+        width: element.offsetWidth + 'px',
+        height: element.offsetHeight + 'px'
+      };
+
+      const imgData = await domtoimage.toJpeg(element, {
+        width: element.offsetWidth * scale,
+        height: element.offsetHeight * scale,
+        quality: 0.98,
+        bgcolor: '#ffffff',
+        style
+      });
+
       const img = new Image();
       img.src = imgData;
       await new Promise(r => { img.onload = r; });
-      
+
+      const pdfWidth = 1008;  // Legal height/width in points (14 inches)
+      const pdfHeight = 612;  // Legal height/width in points (8.5 inches)
+      const margin = 36;      // 0.5 inch margin in points
+      const maxWidth = pdfWidth - margin * 2;
+      const maxHeight = pdfHeight - margin * 2;
+
+      let printWidth = img.width;
+      let printHeight = img.height;
+      const ratio = printWidth / printHeight;
+      const maxRatio = maxWidth / maxHeight;
+
+      if (ratio > maxRatio) {
+        printWidth = maxWidth;
+        printHeight = maxWidth / ratio;
+      } else {
+        printHeight = maxHeight;
+        printWidth = maxHeight * ratio;
+      }
+
+      const x = (pdfWidth - printWidth) / 2;
+      const y = (pdfHeight - printHeight) / 2;
+
       const pdf = new jsPDF({
-        orientation: img.width > img.height ? 'landscape' : 'portrait',
-        unit: 'px',
-        format: [img.width, img.height]
+        orientation: 'landscape',
+        unit: 'pt',
+        format: 'legal'
       });
-      
-      pdf.addImage(imgData, 'JPEG', 0, 0, img.width, img.height);
+
+      pdf.addImage(imgData, 'JPEG', x, y, printWidth, printHeight);
       pdf.save(`${batch?.filename || 'routine'}.pdf`);
-      
+
       toast.success('Downloaded PDF successfully!', { id: tid });
     } catch (err) {
       console.error('PDF Generation Error:', err);
@@ -242,79 +286,97 @@ const RoutinePage = () => {
 
   const hasSchedule = assignments.length > 0;
 
+  const handleAssignmentMove = async (draggedEntry, target) => {
+    const updatedAssignments = assignments.map(a => {
+      if (
+        a.course_code === draggedEntry.course_code &&
+        a.year_sem === draggedEntry.year_sem &&
+        a.day === draggedEntry.day &&
+        a.slot_start === draggedEntry.slot_start
+      ) {
+        return {
+          ...a,
+          day: target.day,
+          year_sem: target.ys || target.yearSem,
+          slot_start: target.slotStart,
+          slot_end: target.slotEnd,
+        };
+      }
+      return a;
+    });
+
+    setAssignments(updatedAssignments);
+
+    try {
+      await routineApi.updateSchedule(batchId, updatedAssignments);
+      toast.success(`Successfully moved ${draggedEntry.course_code} to ${target.day}`);
+    } catch (err) {
+      toast.error('Failed to save schedule move to backend.');
+      loadRoutine();
+    }
+  };
+
   return (
     <div className="max-w-[1400px] mx-auto space-y-6">
       {/* Header card */}
-      <div className="print:hidden bg-linear-to-br from-ocean-900 to-ocean-800 rounded-2xl px-6 py-5 text-white border border-sky-500/15 shadow-lg flex items-center gap-4">
-        <button
-          onClick={() => navigate('/history')}
-          className="bg-white/10 hover:bg-white/20 p-2 rounded-lg transition-colors"
-          title="Back to history"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <Calendar className="w-4 h-4 text-sky-400" />
-            <span className="text-xs font-semibold tracking-widest uppercase text-sky-400">
-              Batch #{batchId}
-            </span>
-            <StatusBadge status={batch?.status} hasSchedule={hasSchedule} />
+      <div className="print:hidden bg-linear-to-br from-ocean-900 to-ocean-800 rounded-2xl px-4 sm:px-6 py-4 sm:py-5 text-white border border-sky-500/15 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-start sm:items-center gap-3">
+          <button
+            onClick={() => navigate('/history')}
+            className="bg-white/10 hover:bg-white/20 p-2 rounded-lg transition-colors shrink-0 mt-0.5 sm:mt-0"
+            title="Back to history"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              <Calendar className="w-4 h-4 text-sky-400 shrink-0" />
+              <span className="text-xs font-semibold tracking-widest uppercase text-sky-400">
+                Batch #{batchId}
+              </span>
+              <StatusBadge status={batch?.status} hasSchedule={hasSchedule} />
+            </div>
+            <h1 className="text-lg sm:text-xl font-bold truncate">{batch?.filename || 'Routine'}</h1>
+            <p className="text-sky-300 text-xs sm:text-sm truncate">
+              {batch?.semester || 'No semester label'} · Imported{' '}
+              {batch?.created_at
+                ? new Date(batch.created_at).toLocaleString()
+                : '—'}
+            </p>
           </div>
-          <h1 className="text-xl font-bold">{batch?.filename || 'Routine'}</h1>
-          <p className="text-sky-300 text-sm">
-            {batch?.semester || 'No semester label'} · Imported{' '}
-            {batch?.created_at
-              ? new Date(batch.created_at).toLocaleString()
-              : '—'}
-          </p>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={loadRoutine}
-            disabled={generating}
-            className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
-            title="Refresh"
-          >
-            <RotateCw className="w-4 h-4" /> Refresh
-          </button>
-          <button
-            onClick={() => setShowEditor(true)}
-            disabled={generating}
-            className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
-            title="Edit raw Excel workbook data in web editor"
-          >
-            <FileSpreadsheet className="w-4 h-4" /> Edit Workbook
-          </button>
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto">
+
+
           <button
             onClick={handleDownload}
             disabled={!hasSchedule || downloading != null || generating}
-            className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-            title={hasSchedule ? 'Download as .pdf (needs LibreOffice on server)' : 'Generate the routine first'}
+            className="bg-white/10 hover:bg-white/20 text-white px-2.5 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            title={hasSchedule ? 'Download as .pdf' : 'Generate the routine first'}
           >
             {downloading === 'pdf' ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
             ) : (
-              <FileDown className="w-4 h-4" />
+              <FileDown className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             )}
             Download PDF
           </button>
           <button
             onClick={handleGenerate}
             disabled={generating}
-            className="bg-sky-500 hover:bg-sky-400 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 disabled:opacity-50"
+            className="col-span-2 sm:col-span-1 bg-sky-500 hover:bg-sky-400 text-white px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
           >
             {generating ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" /> Generating…
+                <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> Generating…
               </>
             ) : hasSchedule ? (
               <>
-                <Play className="w-4 h-4" /> Re-generate
+                <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Re-generate
               </>
             ) : (
               <>
-                <Play className="w-4 h-4" /> Generate Routine
+                <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Generate Routine
               </>
             )}
           </button>
@@ -368,6 +430,29 @@ const RoutinePage = () => {
         />
       )}
 
+      {/* ── Add to Class Routine — between filter bar and grid ── */}
+      {hasSchedule && (
+        <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-sky-50 to-indigo-50 border border-sky-200/60 rounded-xl px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-400 to-indigo-600 flex items-center justify-center shadow-sm shrink-0">
+              <BookmarkPlus className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-slate-800 leading-tight">Publish to Class Routines</p>
+              <p className="text-xs text-slate-500 mt-0.5">Make this routine available on the public Class Routines homepage</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowAddToClassRoutineModal(true)}
+            disabled={generating}
+            className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white text-xs font-bold rounded-lg shadow-md transition-all disabled:opacity-50"
+          >
+            <BookmarkPlus className="w-3.5 h-3.5" />
+            Add to Class Routine
+          </button>
+        </div>
+      )}
+
       {/* Routine grid */}
       <div id="routine-pdf-container">
         <RoutineGrid
@@ -378,6 +463,7 @@ const RoutinePage = () => {
           yearSemList={yearSemList}
           dayList={dayList}
           onCellClick={setSelectedCell}
+          onAssignmentMove={handleAssignmentMove}
         />
       </div>
 
@@ -397,14 +483,7 @@ const RoutinePage = () => {
           </button>
         </div>
       )}
-      {showEditor && (
-        <SpreadsheetEditor
-          batchId={batchId}
-          batchName={batch?.filename}
-          onClose={() => setShowEditor(false)}
-          onSaveSuccess={loadRoutine}
-        />
-      )}
+
 
       {hasSchedule && (
         <div className="mt-8 space-y-4">
@@ -424,6 +503,21 @@ const RoutinePage = () => {
           entry={selectedCell}
           teachers={teachers}
           onClose={() => setSelectedCell(null)}
+        />
+      )}
+
+      {/* Add to Class Routine Modal */}
+      {showAddToClassRoutineModal && (
+        <AddToClassRoutineModal
+          batchId={batchId}
+          defaultDepartment={config?.department || (header?.department !== 'Department' ? header.department : '') || (batch?.semester || '')}
+          defaultFaculty={config?.faculty || batch?.faculty || ''}
+          defaultYear={config?.year || batch?.year || ''}
+          defaultTerm={config?.semester || batch?.semester || ''}
+          onClose={() => setShowAddToClassRoutineModal(false)}
+          onSuccess={() => {
+            setShowAddToClassRoutineModal(false);
+          }}
         />
       )}
     </div>
@@ -452,8 +546,8 @@ function CountChip({ label, value, highlight }) {
   return (
     <div
       className={`rounded-xl border px-4 py-3 ${highlight
-          ? 'bg-emerald-50 border-emerald-200'
-          : 'bg-white border-slate-200'
+        ? 'bg-emerald-50 border-emerald-200'
+        : 'bg-white border-slate-200'
         }`}
     >
       <p className="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">
@@ -569,11 +663,11 @@ function ValidationRow({ issue, severity, batchId }) {
       let msg = err.message || 'Failed to get explanation.';
       if (code === 'AI_UNAVAILABLE') {
         if (err.reason === 'no_api_key') {
-          msg = 'AI assist is not configured on the server. Set GROQ_API_KEY in backend/.env to enable.';
+          msg = 'AI assist is not configured on the server. Set OPENROUTER_API_KEY in backend/.env to enable.';
         } else if (err.reason === 'permission_denied') {
-          msg = "AI assist is blocked: Groq rejected the server's GROQ_API_KEY " +
+          msg = "AI assist is blocked: OpenRouter rejected the server's OPENROUTER_API_KEY " +
             '(HTTP 401/403/404). Verify the key is valid and that the configured ' +
-            'GROQ_MODEL is available for your account.';
+            'OPENROUTER_MODEL is available for your account.';
         } else if (err.reason === 'rate_limited') {
           msg = 'AI service is rate-limited right now. Try again in a few seconds.';
         } else {

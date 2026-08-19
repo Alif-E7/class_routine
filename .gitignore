@@ -1,29 +1,80 @@
+# ==========================================
 # Dependencies
+# ==========================================
 node_modules/
+**/node_modules/
+.pnpm-store/
 
-# Environment files
+# ==========================================
+# Environment & Secret Files
+# ==========================================
 .env
 .env.local
 .env.*.local
+*.env
+!.env.example
 
-# Build output
+# ==========================================
+# Build & Distribution Outputs
+# ==========================================
 dist/
+**/dist/
 build/
+**/build/
+dist-ssr/
+*.tsbuildinfo
 
-# Uploads (temporary files)
-server/uploads/
-
-# Prisma generated client (regenerated from schema)
-server/node_modules/
-
-# Logs
+# ==========================================
+# Logs & Process Outputs
+# ==========================================
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+logs/
 
-# Editor/OS
+# ==========================================
+# Test Artifacts & Coverage
+# ==========================================
+coverage/
+**/coverage/
+.nyc_output/
+*.lcov
+.jest/
+
+# ==========================================
+# Uploads & Temporary Scratch Files
+# ==========================================
+uploads/
+**/uploads/
+*.tmp
+*.temp
+debug_*.js
+*_debug.js
+test_*.js
+
+# ==========================================
+# AI Assistant & Tooling Caches
+# ==========================================
+.puku/
+.gemini/
+.claude/
+.agents/
+
+# ==========================================
+# Editor & Operating System Metadata
+# ==========================================
 .vscode/
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swo
+*.swn
 .DS_Store
 Thumbs.db
-
-# Puku AI cache
-.puku/

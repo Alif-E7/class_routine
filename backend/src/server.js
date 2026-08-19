@@ -23,5 +23,5 @@ async function shutdown(signal) {
   setTimeout(() => process.exit(1), 5000).unref();
 }
 
-process.on('SIGINT',  () => shutdown('SIGINT'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));

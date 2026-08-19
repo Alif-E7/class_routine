@@ -55,9 +55,9 @@ async function loadBatchForSchedule(batchId, conn) {
     throw new LoadError(`No upload batch with id ${batchId}`, 'BATCH_NOT_FOUND', { batchId });
   }
   const batch = batchRows[0];
-  if (batch.status !== 'completed') {
+  if (batch.status !== 'completed' && batch.status !== 'needs_review') {
     throw new LoadError(
-      `Batch ${batchId} is in status "${batch.status}" — only "completed" batches can be scheduled`,
+      `Batch ${batchId} is in status "${batch.status}" — only "completed" or "needs_review" batches can be scheduled`,
       'BATCH_NOT_READY',
       { batchId, status: batch.status }
     );
@@ -139,6 +139,12 @@ async function loadBatchForSchedule(batchId, conn) {
     );
   }
 
+  // ── Teachers ──────────────────────────────────────────────────────
+  const [teacherRows] = await exec.query(
+    'SELECT abbreviation, full_name, designation, department FROM teachers WHERE upload_batch_id = ? ORDER BY abbreviation',
+    [batchId]
+  );
+
   // ── Rooms ─────────────────────────────────────────────────────────
   const [roomRows] = await exec.query(
     'SELECT room_id, room_name, type FROM rooms WHERE upload_batch_id = ? ORDER BY room_id',
@@ -167,6 +173,7 @@ async function loadBatchForSchedule(batchId, conn) {
   );
 
   const config = {
+    ...configRaw,
     working_days:     String(configRaw.working_days || '').trim(),
     class_start:      normalizeTimeInput(configRaw.class_start) || '',
     class_end:        normalizeTimeInput(configRaw.class_end) || '',
@@ -178,6 +185,7 @@ async function loadBatchForSchedule(batchId, conn) {
   return {
     batch,
     config,
+    teachers:               teacherRows,
     courses:                activeCourses,
     rooms:                  roomRows,
     room_preference:        prefRows,

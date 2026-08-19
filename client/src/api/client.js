@@ -1,9 +1,12 @@
 import axios from 'axios';
 
-// All calls go to /api/* which Vite proxies to the backend on :4000
-// (see client/vite.config.js).
+// All calls go to VITE_API_URL/api in production or /api (proxied via Vite on :4000 in local dev)
+const apiBase = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL.replace(/\/+$/, '')}/api`
+  : '/api';
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: apiBase,
   // The backend occasionally takes a few seconds on /generate;
   // give it room without making the UI feel hung.
   timeout: 60_000,
@@ -32,6 +35,8 @@ api.interceptors.response.use(
       err.friendly_hint = data.friendly_hint || null;
       err.batch_id = data.batch_id || null;
       err.is_valid = data.is_valid ?? null;
+    } else if (err.response?.status === 502 || err.code === 'ERR_BAD_RESPONSE') {
+      err.message = 'Backend server is not running or unreachable (502 Bad Gateway). Make sure backend is running on port 4000.';
     }
     return Promise.reject(err);
   }
@@ -46,10 +51,7 @@ export const routineApi = {
    * Upload a workbook.
    * @param {FormData} formData — must include "file" (.xlsx) and optionally "semester".
    */
-  uploadExcel: (formData) =>
-    api.post('/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    }),
+  uploadExcel: (formData) => api.post('/upload', formData),
 
   /**
    * Run the CSP solver against a stored batch.
@@ -64,6 +66,14 @@ export const routineApi = {
    * @param {number} batchId
    */
   getRoutine: (batchId) => api.get(`/batches/${batchId}/schedule`),
+
+  /**
+   * Persist updated schedule after drag and drop edits.
+   * @param {number} batchId
+   * @param {Array} assignments
+   */
+  updateSchedule: (batchId, assignments) =>
+    api.put(`/batches/${batchId}/schedule`, { assignments }),
 };
 
 export const batchesApi = {
@@ -213,5 +223,21 @@ function saveBlob(blob, filename) {
   // Revoke after a tick so the browser has time to start the download.
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+export const classRoutineApi = {
+  list: () => api.get('/class-routines'),
+  getDetail: (id) => api.get(`/class-routines/${id}`),
+  create: (data) => api.post('/class-routines', data),
+  delete: (id) => api.delete(`/class-routines/${id}`),
+};
+
+export const masterApi = {
+  getSemesters: () => api.get('/class-routines'),
+};
+
+export const templateApi = {
+  download: () => api.get('/upload/template.xlsx', { responseType: 'blob' }),
+  getManual: () => api.get('/upload/manual'),
+};
 
 export default api;

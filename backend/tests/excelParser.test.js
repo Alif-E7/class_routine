@@ -104,7 +104,8 @@ describe('excelParser — round-trip', () => {
     expect(wb.rooms).toHaveLength(2);
     expect(wb.rooms[0].type).toBe('classroom');
     expect(wb.credit_rules).toHaveLength(2);
-    expect(wb.room_preference).toHaveLength(2);
+    // room_preference: parser auto-complements — 2 rooms × 2 groups (1-2 and 3-4) = 4 rows
+    expect(wb.room_preference).toHaveLength(4);
     expect(wb.teacher_unavailability).toHaveLength(1);
     // NEW: year_sem and day_preference arrays present
     expect(wb.year_sem).toBeDefined();
@@ -290,6 +291,141 @@ describe('excelParser — stop at first blank row', () => {
     expect(result.teachers).toEqual([]);
   });
  
+  describe('Template v2 parsing features', () => {
+    test('parses workbook with asterisks in headers and extra status/helper columns', () => {
+      const wb = XLSX.utils.book_new();
+      // Summary sheet - should be skipped
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Summary Info', 123]]), 'Summary');
+
+      // Teachers with asterisks and trailing status column
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['full_name *', 'abbreviation *', 'designation *', 'department *', 'status'],
+        ['Dr. Ayesha Rahman', 'AYR', 'Professor', 'Computer Science and Engineering (CSE)', 'OK'],
+      ]), 'Teachers');
+
+      // Courses with asterisks and trailing status
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['course_code *', 'course_name *', 'credit *', 'dept *', 'year_sem *', 'teacher_abbr *', 'status'],
+        ['CSE101', 'Intro to CS', '3', 'Computer Science and Engineering (CSE)', '1-1', 'AYR', 'OK'],
+      ]), 'Courses');
+
+      // Year_Sem with helpers and status
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['year_sem *', 'year *', 'semester *', 'group_code *', 'is_active *', 'active_year_sem_helper', 'active_sequence_helper', 'status'],
+        ['1-1', 1, 1, '1-2', 'Yes', '1-1', 1, 'OK'],
+      ]), 'Year_Sem');
+
+      // Rooms
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['room_id *', 'room_name *', 'type *', 'status'],
+        ['R407', 'Room 407', 'lab', 'OK'],
+      ]), 'Rooms');
+
+      // Credit_Rules
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['credit *', 'type *', 'classes_per_week *', 'duration_minutes *', 'status'],
+        ['3', 'Theory', 3, 50, 'OK'],
+      ]), 'Credit_Rules');
+
+      // Room_Preference - single row -> should auto-generate complement (3-4 with weight 70)
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['room_id *', 'year_group *', 'weight_percent *', 'status'],
+        ['R407', '1-2', 30, 'OK'],
+      ]), 'Room_Preference');
+
+      // Day_Preference - single row -> should auto-generate complement (Theory with weight 60)
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['day *', 'class_type *', 'weight_percent *', 'status'],
+        ['SUN', 'Lab', 40, 'OK'],
+      ]), 'Day_Preference');
+
+      // Teacher_Unavailability
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['teacher_abbr *', 'day *', 'start_time *', 'end_time *', 'status'],
+        ['AYR', 'SUN', '09:00', '10:00', 'OK'],
+      ]), 'Teacher_Unavailability');
+
+      // Config with 3 columns (key, value, status) and new keys
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['key', 'value', 'status'],
+        ['university', 'Gopalganj Science and Technology University', 'OK'],
+        ['faculty', 'Engineering Faculty', null],
+        ['department', 'Computer Science and Engineering (CSE)', null],
+        ['year', 2026, null],
+        ['semester', 'Fall', null],
+        ['working_days', 'SUN,MON,TUE,WED,THU', null],
+        ['class_start', '09:00', null],
+        ['class_end', '15:50', null],
+      ]), 'Config');
+
+      // Lists sheet with row 1 headers
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+        ['Config_Year', 'Config_Semester', 'Faculty', 'Department_Full', 'dep_Engineering_Faculty'],
+        [2026, 'Fall', 'Engineering Faculty', 'Computer Science and Engineering (CSE)', 'Computer Science and Engineering (CSE)'],
+      ]), 'Lists');
+
+      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      const result = parseWorkbook(buf, 'v2_sample.xlsx');
+
+      expect(result.teachers).toHaveLength(1);
+      expect(result.teachers[0].department).toBe('Computer Science and Engineering (CSE)');
+      expect(result.teachers[0].status).toBeUndefined();
+
+      expect(result.courses).toHaveLength(1);
+      expect(result.courses[0].dept).toBe('Computer Science and Engineering (CSE)');
+
+      expect(result.config.faculty).toBe('Engineering Faculty');
+      expect(result.config.department).toBe('Computer Science and Engineering (CSE)');
+      expect(result.config.year).toBe('2026');
+      expect(result.config.semester).toBe('Fall');
+
+      // Auto-complement room preference
+      expect(result.room_preference).toHaveLength(2);
+      expect(result.room_preference[0]).toEqual({ room_id: 'R407', year_group: '1-2', weight_percent: '30' });
+      expect(result.room_preference[1]).toEqual({ room_id: 'R407', year_group: '3-4', weight_percent: '70' });
+
+      // Auto-complement day preference
+      expect(result.day_preference).toHaveLength(2);
+      expect(result.day_preference[0]).toEqual({ day: 'SUN', class_type: 'Lab', weight_percent: '40' });
+      expect(result.day_preference[1]).toEqual({ day: 'SUN', class_type: 'Theory', weight_percent: '60' });
+
+      // Lists parsed
+      expect(result.lists).toBeDefined();
+      expect(result.lists.faculties).toContain('Engineering Faculty');
+      expect(result.lists.departments).toContain('Computer Science and Engineering (CSE)');
+    });
+
+    test('round-trips the actual backend/contents routine template file', () => {
+      const fs = require('fs');
+      const path = require('path');
+      const contentsDir = path.resolve(__dirname, '../contents');
+      let filePath = path.join(contentsDir, 'Routine_template.xlsx');
+      if (!fs.existsSync(filePath)) {
+        filePath = path.join(contentsDir, 'Routine_Template.xlsx');
+      }
+      if (!fs.existsSync(filePath)) {
+        const match = fs.readdirSync(contentsDir).find(f => f.toLowerCase().endsWith('.xlsx') && f.toLowerCase().includes('routine'));
+        if (match) filePath = path.join(contentsDir, match);
+      }
+      if (fs.existsSync(filePath)) {
+        const buf = fs.readFileSync(filePath);
+        const result = parseWorkbook(buf, path.basename(filePath));
+
+        expect(result.config.faculty).toBe('Engineering Faculty');
+        expect(result.config.department).toBeDefined();
+        expect(result.config.year).toBe('2026');
+        expect(result.config.semester).toBe('Fall');
+        expect(result.teachers.length).toBeGreaterThan(0);
+        expect(result.courses.length).toBeGreaterThan(0);
+        expect(result.rooms.length).toBeGreaterThan(0);
+        expect(result.room_preference.length).toBeGreaterThan(0);
+        expect(result.day_preference.length).toBeGreaterThan(0);
+        expect(result.year_sem.length).toBeGreaterThan(0);
+        expect(result.credit_rules.length).toBeGreaterThan(0);
+      }
+    });
+  });
+
   describe('normalizeTimeInput', () => {
     test('converts Excel day fractions to HH:MM format', () => {
       expect(normalizeTimeInput(0.5486111111111112)).toBe('13:10');

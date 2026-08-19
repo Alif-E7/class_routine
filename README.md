@@ -48,17 +48,17 @@ Create a file named `.env` inside the `backend/` folder and paste the following:
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
-DB_PASSWORD=YourMySQLPassword
+DB_PASSWORD=..........
 DB_NAME=routine_generator
 
 PORT=4000
 SCHEDULER_BUDGET=2000000
 
-# Optional: Add your Groq/Gemini key for AI advice
-GROQ_API_KEY=your_api_key_here
-GROQ_MODEL=llama-3.3-70b-versatile
-GROQ_BASE_URL=https://api.groq.com/openai/v1
-GROQ_TIMEOUT_MS=6000
+# Optional: Add your OpenRouter key for AI advice
+OPENROUTER_API_KEY=your_api_key_here
+OPENROUTER_MODEL=openrouter/free
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_TIMEOUT_MS=60000
 ```
 
 ### 4. Running the Project

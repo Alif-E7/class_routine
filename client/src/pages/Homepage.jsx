@@ -1,472 +1,449 @@
-import { useState, useEffect, useRef } from 'react';
-import TimetableGrid from '../components/TimetableGrid';
-import { routineApi, masterApi } from '../api/client';
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { classRoutineApi } from '../api/client';
 import {
-  Loader2, Download, ChevronDown, Sparkles,
-  Cpu, Atom, Leaf, BookOpen, Briefcase, GraduationCap, Waves,
-  FileText, ArrowRight
+  Loader2, Sparkles,
+  Cpu, Atom, Leaf, BookOpen, Users, Briefcase, Scale, Stethoscope, Sprout,
+  GraduationCap, Waves, ArrowRight, Trash2, Calendar, Search, Filter, Layers, LayoutGrid
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../contexts/AuthContext';
 
-// ── Faculty palette ─────────────────────────────────────────────
-// Each faculty gets its own distinct gradient family so cards feel
-// visually separated and easy to scan.
+/* ── Faculty Configuration (9 faculties) ────────────────────────── */
 const FACULTY_CONFIG = {
   Engineering: {
     icon: Cpu,
-    label: 'Engineering',
-    accent: 'indigo',
-    gradient: 'bg-gradient-to-br from-indigo-500 via-indigo-600 to-violet-700',
-    cardBg: 'bg-white',
-    hoverBorder: 'hover:border-indigo-400',
-    selectedBorder: 'border-indigo-500',
-    selectedBg: 'bg-gradient-to-br from-indigo-50 via-white to-violet-50',
-    selectedChip: 'bg-indigo-500 text-white',
-    dot: 'bg-indigo-500',
-    divider: 'from-indigo-200 via-indigo-300 to-transparent',
-    hoverRing: 'hover:ring-2 hover:ring-indigo-100',
-    selectedTag: 'text-indigo-700',
-    hoverTag: 'group-hover:text-indigo-700',
-    iconBg: 'bg-slate-50 text-slate-500',
+    gradient: 'from-indigo-500 to-violet-600',
+    chip: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+    accent: 'text-indigo-600',
+    bar: 'bg-indigo-500',
+    ring: 'ring-indigo-200',
+    dividerColor: '#6366f1',
   },
   Science: {
     icon: Atom,
-    label: 'Science',
-    accent: 'cyan',
-    gradient: 'bg-gradient-to-br from-cyan-500 via-cyan-600 to-sky-700',
-    cardBg: 'bg-white',
-    hoverBorder: 'hover:border-cyan-400',
-    selectedBorder: 'border-cyan-500',
-    selectedBg: 'bg-gradient-to-br from-cyan-50 via-white to-sky-50',
-    selectedChip: 'bg-cyan-500 text-white',
-    dot: 'bg-cyan-500',
-    divider: 'from-cyan-200 via-cyan-300 to-transparent',
-    hoverRing: 'hover:ring-2 hover:ring-cyan-100',
-    selectedTag: 'text-cyan-700',
-    hoverTag: 'group-hover:text-cyan-700',
-    iconBg: 'bg-slate-50 text-slate-500',
+    gradient: 'from-cyan-500 to-sky-600',
+    chip: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+    accent: 'text-cyan-600',
+    bar: 'bg-cyan-500',
+    ring: 'ring-cyan-200',
+    dividerColor: '#06b6d4',
   },
   'Life Science': {
     icon: Leaf,
-    label: 'Life Science',
-    accent: 'emerald',
-    gradient: 'bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700',
-    cardBg: 'bg-white',
-    hoverBorder: 'hover:border-emerald-400',
-    selectedBorder: 'border-emerald-500',
-    selectedBg: 'bg-gradient-to-br from-emerald-50 via-white to-teal-50',
-    selectedChip: 'bg-emerald-500 text-white',
-    dot: 'bg-emerald-500',
-    divider: 'from-emerald-200 via-emerald-300 to-transparent',
-    hoverRing: 'hover:ring-2 hover:ring-emerald-100',
-    selectedTag: 'text-emerald-700',
-    hoverTag: 'group-hover:text-emerald-700',
-    iconBg: 'bg-slate-50 text-slate-500',
+    gradient: 'from-emerald-500 to-teal-600',
+    chip: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    accent: 'text-emerald-600',
+    bar: 'bg-emerald-500',
+    ring: 'ring-emerald-200',
+    dividerColor: '#10b981',
   },
   Humanities: {
     icon: BookOpen,
-    label: 'Humanities',
-    accent: 'amber',
-    gradient: 'bg-gradient-to-br from-amber-500 via-orange-500 to-rose-600',
-    cardBg: 'bg-white',
-    hoverBorder: 'hover:border-amber-400',
-    selectedBorder: 'border-amber-500',
-    selectedBg: 'bg-gradient-to-br from-amber-50 via-white to-orange-50',
-    selectedChip: 'bg-amber-500 text-white',
-    dot: 'bg-amber-500',
-    divider: 'from-amber-200 via-orange-300 to-transparent',
-    hoverRing: 'hover:ring-2 hover:ring-amber-100',
-    selectedTag: 'text-amber-700',
-    hoverTag: 'group-hover:text-amber-700',
-    iconBg: 'bg-slate-50 text-slate-500',
+    gradient: 'from-amber-500 to-orange-600',
+    chip: 'bg-amber-50 text-amber-700 border-amber-200',
+    accent: 'text-amber-600',
+    bar: 'bg-amber-500',
+    ring: 'ring-amber-200',
+    dividerColor: '#f59e0b',
   },
-  Business: {
+  'Social Science': {
+    icon: Users,
+    gradient: 'from-purple-500 to-fuchsia-600',
+    chip: 'bg-purple-50 text-purple-700 border-purple-200',
+    accent: 'text-purple-600',
+    bar: 'bg-purple-500',
+    ring: 'ring-purple-200',
+    dividerColor: '#a855f7',
+  },
+  'Business Studies': {
     icon: Briefcase,
-    label: 'Business',
-    accent: 'rose',
-    gradient: 'bg-gradient-to-br from-rose-500 via-pink-600 to-fuchsia-700',
-    cardBg: 'bg-white',
-    hoverBorder: 'hover:border-rose-400',
-    selectedBorder: 'border-rose-500',
-    selectedBg: 'bg-gradient-to-br from-rose-50 via-white to-pink-50',
-    selectedChip: 'bg-rose-500 text-white',
-    dot: 'bg-rose-500',
-    divider: 'from-rose-200 via-pink-300 to-transparent',
-    hoverRing: 'hover:ring-2 hover:ring-rose-100',
-    selectedTag: 'text-rose-700',
-    hoverTag: 'group-hover:text-rose-700',
-    iconBg: 'bg-slate-50 text-slate-500',
+    gradient: 'from-rose-500 to-pink-600',
+    chip: 'bg-rose-50 text-rose-700 border-rose-200',
+    accent: 'text-rose-600',
+    bar: 'bg-rose-500',
+    ring: 'ring-rose-200',
+    dividerColor: '#f43f5e',
   },
-  Other: {
-    icon: GraduationCap,
-    label: 'Other',
-    accent: 'slate',
-    gradient: 'bg-gradient-to-br from-slate-500 via-slate-600 to-slate-800',
-    cardBg: 'bg-white',
-    hoverBorder: 'hover:border-slate-400',
-    selectedBorder: 'border-slate-500',
-    selectedBg: 'bg-gradient-to-br from-slate-50 via-white to-slate-100',
-    selectedChip: 'bg-slate-600 text-white',
-    dot: 'bg-slate-500',
-    divider: 'from-slate-200 via-slate-300 to-transparent',
-    hoverRing: 'hover:ring-2 hover:ring-slate-100',
-    selectedTag: 'text-slate-700',
-    hoverTag: 'group-hover:text-slate-700',
-    iconBg: 'bg-slate-50 text-slate-500',
+  Law: {
+    icon: Scale,
+    gradient: 'from-slate-600 to-gray-800',
+    chip: 'bg-slate-100 text-slate-700 border-slate-300',
+    accent: 'text-slate-700',
+    bar: 'bg-slate-600',
+    ring: 'ring-slate-300',
+    dividerColor: '#475569',
+  },
+  'Animal Science and Veterinary Medicine': {
+    icon: Stethoscope,
+    gradient: 'from-teal-500 to-emerald-700',
+    chip: 'bg-teal-50 text-teal-700 border-teal-200',
+    accent: 'text-teal-600',
+    bar: 'bg-teal-500',
+    ring: 'ring-teal-200',
+    dividerColor: '#14b8a6',
+  },
+  Agriculture: {
+    icon: Sprout,
+    gradient: 'from-lime-600 to-green-700',
+    chip: 'bg-lime-50 text-lime-800 border-lime-200',
+    accent: 'text-lime-700',
+    bar: 'bg-lime-600',
+    ring: 'ring-lime-300',
+    dividerColor: '#65a30d',
   },
 };
 
-const FACULTY_ORDER = ['Engineering', 'Science', 'Life Science', 'Humanities', 'Business', 'Other'];
+const FACULTY_DEPARTMENTS = {
+  Engineering: [
+    'CSE',
+    'EEE',
+    'ETE',
+    'ACCE',
+    'CE',
+    'Food and Agroprocess Engineering',
+    'ARCH',
+  ],
+  Science: [
+    'Mathematics',
+    'Statistics',
+    'Chemistry',
+    'Physics',
+    'ESDM',
+  ],
+  'Life Science': [
+    'Pharmacy',
+    'BGE',
+    'BMB',
+    'Botany',
+  ],
+  Humanities: [
+    'English',
+    'Bangla',
+    'History',
+  ],
+  'Social Science': [
+    'Psychology',
+    'Sociology',
+    'PAD',
+    'IR',
+    'Economics',
+    'PS',
+  ],
+  'Business Studies': [
+    'Management Studies',
+    'AIS',
+    'Marketing',
+    'Finance and Banking',
+    'THM',
+  ],
+  Law: [
+    'Law',
+  ],
+  Agriculture: [
+    'Agriculture',
+    'FMB',
+  ],
+  'Animal Science and Veterinary Medicine': [
+    'ASVM',
+  ],
+};
+
+const ALL_DEPARTMENTS = Object.values(FACULTY_DEPARTMENTS).flat().sort();
+
+const ALL_FACULTIES = Object.keys(FACULTY_CONFIG);
 
 const Homepage = () => {
-  const [semesters, setSemesters] = useState([]);
-  const [selectedDept, setSelectedDept] = useState(null);
-  const [selectedSemesterId, setSelectedSemesterId] = useState('');
-  const [routineEntries, setRoutineEntries] = useState([]);
-  const [loadingPage, setLoadingPage] = useState(true);
-  const [loadingRoutine, setLoadingRoutine] = useState(false);
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
-  const routineRef = useRef(null);
+  const navigate = useNavigate();
+  const [routinesList, setRoutinesList] = useState([]);
+  const [loadingList, setLoadingList] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFaculty, setSelectedFaculty] = useState('All');
+  const [selectedDepartment, setSelectedDepartment] = useState('All');
+  const { user } = useAuth();
 
-  // ── Initial load ──
-  useEffect(() => {
-    masterApi.getSemesters()
-      .then(res => setSemesters(res.data.data))
-      .catch(console.error)
-      .finally(() => setLoadingPage(false));
-  }, []);
-
-  const allDepartments = semesters.flatMap(sem =>
-    (sem.departments || []).map(dept => ({
-      ...dept,
-      semesterName: sem.name,
-      semesterId: sem.id
-    }))
-  );
-
-  // ── Routine fetch ──
-  useEffect(() => {
-    if (!selectedDept || !selectedSemesterId) return;
-    setLoadingRoutine(true);
-    setRoutineEntries([]);
-    routineApi.getRoutine({ semesterId: selectedSemesterId, department: selectedDept.deptCode })
-      .then(res => setRoutineEntries(res.data.data))
-      .catch(() => toast.error('Failed to load routine.'))
-      .finally(() => setLoadingRoutine(false));
-  }, [selectedDept, selectedSemesterId]);
-
-  const handleDeptClick = (dept) => {
-    setSelectedDept(dept);
-    setSelectedSemesterId(dept.semesterId);
-    setTimeout(() => routineRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+  const fetchList = () => {
+    setLoadingList(true);
+    classRoutineApi.list()
+      .then(res => setRoutinesList(res.data.data || []))
+      .catch(() => toast.error('Failed to load class routines.'))
+      .finally(() => setLoadingList(false));
   };
 
-  // ── Group by faculty ──
-  const grouped = allDepartments.reduce((acc, dept) => {
-    const f = dept.faculty || 'Other';
-    if (!acc[f]) acc[f] = [];
-    acc[f].push(dept);
-    return acc;
-  }, {});
-  const activeFaculties = FACULTY_ORDER.filter(f => grouped[f]?.length > 0);
+  useEffect(() => { fetchList(); }, []);
 
-  // ── PDF Download (server-side via pdfkit) ──
-  // Use plain `fetch` (not the axios instance) so no `Authorization` header is
-  // attached — that keeps the request "simple" and avoids a CORS preflight
-  // (the dev proxy and certain browsers mishandle OPTIONS for blob responses).
-  const downloadPDF = async () => {
-    if (!selectedDept || !selectedSemesterId) return;
-    const toastId = toast.loading('Generating PDF...');
-    setDownloadingPdf(true);
+  const handleDeptClick = (item) => {
+    navigate(`/routines/${item.id}`);
+  };
+
+  const handleDelete = async (e, id, dept) => {
+    e.stopPropagation();
+    if (!window.confirm(`Remove routine for "${dept}" from Class Routines?`)) return;
     try {
-      const semName = semesters.find(s => s.id === selectedSemesterId)?.name || 'Routine';
-      const safeSem = semName.replace(/[^a-zA-Z0-9]+/g, '_');
-      const url = `/api/semesters/${encodeURIComponent(selectedSemesterId)}/departments/${encodeURIComponent(selectedDept.deptCode)}/export-pdf`;
-
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const blob = await res.blob();
-      const objectUrl = window.URL.createObjectURL(blob);
-
-      // Pull a friendly filename from the response headers if the server set one.
-      const dispo = res.headers.get('content-disposition') || '';
-      const match = dispo.match(/filename="?([^";]+)"?/i);
-      const filename = match?.[1] || `${selectedDept.deptCode}_${safeSem}.pdf`;
-
-      const a = document.createElement('a');
-      a.href = objectUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(objectUrl);
-      toast.success('PDF downloaded!', { id: toastId });
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to export PDF.', { id: toastId });
-    } finally {
-      setDownloadingPdf(false);
-    }
+      await classRoutineApi.delete(id);
+      toast.success(`Removed ${dept}`);
+      fetchList();
+    } catch { toast.error('Failed to remove.'); }
   };
 
-  const currentSemName = semesters.find(s => s.id === selectedSemesterId)?.name || '';
-  const selectedFacultyCfg = selectedDept ? FACULTY_CONFIG[selectedDept.faculty] || FACULTY_CONFIG.Other : null;
+  // List of departments for filter dropdown: ALL_DEPARTMENTS if All Faculties, else only matching departments for selectedFaculty
+  const availableDepartments = useMemo(() => {
+    if (selectedFaculty === 'All') {
+      return ALL_DEPARTMENTS;
+    }
+    return FACULTY_DEPARTMENTS[selectedFaculty] || [];
+  }, [selectedFaculty]);
+
+  // Handle active filters
+  const filtered = useMemo(() => {
+    return routinesList.filter(item => {
+      // Faculty filter
+      if (selectedFaculty !== 'All' && item.faculty !== selectedFaculty) {
+        return false;
+      }
+      // Department filter
+      if (selectedDepartment !== 'All' && item.department !== selectedDepartment) {
+        return false;
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        return (
+          item.department.toLowerCase().includes(q) ||
+          item.faculty.toLowerCase().includes(q) ||
+          item.year.includes(q) ||
+          item.term.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    });
+  }, [routinesList, selectedFaculty, selectedDepartment, searchQuery]);
+
+  // Group filtered results by faculty
+  const grouped = useMemo(() => {
+    return filtered.reduce((acc, item) => {
+      const f = item.faculty;
+      if (!acc[f]) acc[f] = [];
+      acc[f].push(item);
+      return acc;
+    }, {});
+  }, [filtered]);
+
+  const isFilterActive = selectedFaculty !== 'All' || selectedDepartment !== 'All' || searchQuery.trim() !== '';
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-700 space-y-10 pb-12">
+    <div className="page-enter max-w-7xl mx-auto space-y-8 pb-16">
 
-      {/* ── HERO ── */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white px-8 py-10 shadow-2xl border border-white/10">
-        {/* Ambient blobs */}
-        <div className="absolute inset-0 pointer-events-none overflow-hidden">
-          <div className="absolute -top-20 -right-20 w-80 h-80 rounded-full bg-indigo-500/20 blur-3xl" />
-          <div className="absolute -bottom-16 -left-16 w-72 h-72 rounded-full bg-cyan-500/20 blur-3xl" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-violet-500/10 blur-3xl" />
-          {/* Subtle grid pattern */}
-          <div className="absolute inset-0 opacity-[0.04]" style={{
-            backgroundImage: 'linear-gradient(rgba(255,255,255,.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.5) 1px, transparent 1px)',
-            backgroundSize: '32px 32px'
-          }} />
+      {/* ── COMPACT HERO ─────────────────────────────────────────── */}
+      <div className="relative overflow-hidden rounded-2xl bg-ocean-950 border border-white/[0.07] shadow-xl">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute right-0 top-0 w-72 h-full bg-gradient-to-l from-indigo-600/15 to-transparent" />
+          <div className="absolute left-0 bottom-0 w-64 h-24 bg-gradient-to-tr from-sky-600/10 to-transparent" />
         </div>
 
-        <div className="relative flex items-center justify-between flex-wrap gap-6">
-          <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2 mb-3 px-3 py-1 rounded-full bg-white/10 backdrop-blur-sm border border-white/15">
-              <Waves className="w-3.5 h-3.5 text-cyan-300" />
-              <span className="text-[10px] font-semibold tracking-[0.18em] uppercase text-cyan-200">
-                University Name
-              </span>
+        <div className="relative flex items-center justify-between gap-4 px-6 py-6">
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-sky-400 to-indigo-600 flex items-center justify-center shadow-lg">
+              <Waves className="w-6 h-6 text-white" />
             </div>
-            <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight text-white mb-2 leading-tight">
-              Class Routine
-              <Sparkles className="inline-block w-7 h-7 ml-2 text-amber-300 -mt-1" />
-            </h1>
-            <p className="text-slate-300 text-sm md:text-base max-w-xl leading-relaxed">
-              Browse official class schedules by faculty and department. Select a department to
-              view its full weekly routine and download a printable PDF.
-            </p>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Class Routines</h1>
+                <Sparkles className="w-4.5 h-4.5 text-amber-400 shrink-0" />
+                <span className="text-[10px] font-bold uppercase tracking-widest text-sky-400 bg-sky-400/10 border border-sky-400/20 px-2.5 py-0.5 rounded-full">
+                  Official Schedules
+                </span>
+              </div>
+              <p className="text-slate-400 text-xs mt-1 hidden sm:block">
+                Browse weekly timetables by faculty and department
+              </p>
+            </div>
           </div>
 
-          {/* Stats card */}
-          <div className="hidden md:flex items-stretch gap-3">
-            <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl px-5 py-4 min-w-[120px]">
-              <p className="text-2xl font-bold text-white">{allDepartments.length}</p>
-              <p className="text-[10px] uppercase tracking-widest text-slate-400 mt-0.5">Departments</p>
-            </div>
-            <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl px-5 py-4 min-w-[120px]">
-              <p className="text-2xl font-bold text-white">{activeFaculties.length}</p>
-              <p className="text-[10px] uppercase tracking-widest text-slate-400 mt-0.5">Faculties</p>
-            </div>
-            <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl px-5 py-4 min-w-[120px]">
-              <p className="text-2xl font-bold text-white">{semesters.length}</p>
-              <p className="text-[10px] uppercase tracking-widest text-slate-400 mt-0.5">Semesters</p>
+          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-4 py-2">
+            <GraduationCap className="w-5 h-5 text-sky-400" />
+            <div>
+              <p className="text-base font-bold text-white leading-none">{routinesList.length}</p>
+              <p className="text-[9px] uppercase tracking-widest text-slate-500 leading-none mt-1 font-bold">Saved Routines</p>
             </div>
           </div>
         </div>
       </div>
 
+      {/* ── PREMIUM FILTER & SEARCH BAR ─────────────────────────── */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm space-y-4 md:space-y-0 md:flex md:items-center md:gap-4">
+        {/* Search */}
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search by year, term or keyword..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 text-xs font-semibold bg-slate-50 hover:bg-slate-100/50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all"
+          />
+        </div>
+
+        {/* Faculty Select */}
+        <div className="relative min-w-[200px]">
+          <Layers className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <select
+            value={selectedFaculty}
+            onChange={e => {
+              setSelectedFaculty(e.target.value);
+              // Reset department selection if it does not belong to new faculty
+              setSelectedDepartment('All');
+            }}
+            className="w-full pl-9 pr-8 py-2 text-xs font-semibold bg-slate-50 hover:bg-slate-100/50 border border-slate-200 rounded-xl text-slate-700 appearance-none focus:outline-none focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all cursor-pointer"
+          >
+            <option value="All">All Faculties (সব অনুষদ)</option>
+            {ALL_FACULTIES.map(fac => (
+              <option key={fac} value={fac}>{fac}</option>
+            ))}
+          </select>
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-slate-400 w-0 h-0" />
+        </div>
+
+        {/* Department Select */}
+        <div className="relative min-w-[220px]">
+          <LayoutGrid className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <select
+            value={selectedDepartment}
+            onChange={e => setSelectedDepartment(e.target.value)}
+            className="w-full pl-9 pr-8 py-2 text-xs font-semibold bg-slate-50 hover:bg-slate-100/50 border border-slate-200 rounded-xl text-slate-700 appearance-none focus:outline-none focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all cursor-pointer"
+          >
+            <option value="All">All Departments (সব বিভাগ)</option>
+            {availableDepartments.map(dept => (
+              <option key={dept} value={dept}>{dept}</option>
+            ))}
+          </select>
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-slate-400 w-0 h-0" />
+        </div>
+
+        {/* Reset Button */}
+        {isFilterActive && (
+          <button
+            onClick={() => {
+              setSearchQuery('');
+              setSelectedFaculty('All');
+              setSelectedDepartment('All');
+            }}
+            className="w-full md:w-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition-all"
+          >
+            Reset Filters
+          </button>
+        )}
+      </div>
+
       {/* ── LOADING ── */}
-      {loadingPage && (
-        <div className="flex items-center justify-center py-24">
-          <div className="flex flex-col items-center gap-3">
-            <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
-            <p className="text-sm text-slate-400">Loading departments...</p>
-          </div>
+      {loadingList && (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-8 h-8 animate-spin text-sky-500" />
         </div>
       )}
 
-      {/* ── EMPTY STATE ── */}
-      {!loadingPage && allDepartments.length === 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-16 text-center shadow-sm">
-          <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
-            <GraduationCap className="w-10 h-10 text-slate-400" />
-          </div>
-          <h3 className="text-lg font-semibold text-slate-700 mb-1">No Routine Available</h3>
-          <p className="text-slate-400 text-sm max-w-md mx-auto">
-            No departments found. An admin needs to upload a routine first.
+      {/* ── NO RESULTS BANNER ── */}
+      {!loadingList && filtered.length === 0 && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-16 text-center shadow-sm">
+          <Filter className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+          <h3 className="text-base font-bold text-slate-700">কোনো রুটিন খুঁজে পাওয়া যায়নি (No routines found)</h3>
+          <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+            আপনার সিলেক্ট করা ফিল্টারের সাথে মিলে যায় এমন কোনো ক্লাস রুটিন পাওয়া যায়নি। ফিল্টার রিসেট করে আবার চেষ্টা করুন।
           </p>
+          <button
+            onClick={() => {
+              setSearchQuery('');
+              setSelectedFaculty('All');
+              setSelectedDepartment('All');
+            }}
+            className="mt-4 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all"
+          >
+            ফিল্টার রিসেট করুন (Reset Filters)
+          </button>
         </div>
       )}
 
-      {/* ── FACULTY + DEPARTMENT GRID ── */}
-      {!loadingPage && activeFaculties.length > 0 && (
-        <div className="space-y-12">
-          {activeFaculties.map(faculty => {
-            const cfg = FACULTY_CONFIG[faculty] || FACULTY_CONFIG.Other;
-            const Icon = cfg.icon;
-            const depts = grouped[faculty];
+      {/* ── FACULTY SECTIONS ── */}
+      {!loadingList && filtered.length > 0 && (
+        <div className="space-y-10">
+          {ALL_FACULTIES.map(facultyName => {
+            const fc = FACULTY_CONFIG[facultyName];
+            const Icon = fc.icon;
+            const depts = grouped[facultyName] || [];
+
+            // If filtering is active, skip rendering empty sections entirely
+            if (isFilterActive && depts.length === 0) return null;
+            // If showing default view (no filter active), skip sections that have no saved routines
+            if (!isFilterActive && depts.length === 0) return null;
+
             return (
-              <section key={faculty}>
-                {/* Faculty Header */}
-                <div className="flex items-center gap-4 mb-6">
-                  <div className={`${cfg.gradient} p-3 rounded-2xl shadow-lg shrink-0 ring-1 ring-white/20`}>
-                    <Icon className="w-5 h-5 text-white" />
+              <section key={facultyName} className="animate-in fade-in-50 duration-200">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${fc.gradient} flex items-center justify-center shadow-md shrink-0`}>
+                    <Icon className="w-4 h-4 text-white" />
                   </div>
-                  <div className="min-w-0">
-                    <h2 className="text-xl font-bold text-slate-900 leading-tight">
-                      Faculty of {faculty}
+                  <div className="flex items-baseline gap-2 min-w-0">
+                    <h2 className="text-base font-bold text-slate-800 truncate">
+                      Faculty of {facultyName}
                     </h2>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {depts.length} department{depts.length !== 1 ? 's' : ''}
-                    </p>
+                    <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${fc.chip} shrink-0`}>
+                      {depts.length} dept{depts.length !== 1 ? 's' : ''}
+                    </span>
                   </div>
-                  <div className={`flex-1 h-px bg-gradient-to-r ${cfg.divider} ml-2 hidden sm:block`} />
+                  <div className="flex-1 h-px bg-slate-100 hidden sm:block" />
                 </div>
 
-                {/* Department Cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                  {depts.map(dept => {
-                    const isSel = selectedDept?.deptCode === dept.deptCode && selectedSemesterId === dept.semesterId;
-                    return (
-                      <button
-                        key={`${dept.semesterId}-${dept.id}`}
-                        id={`dept-${dept.deptCode}-${dept.semesterId}`}
-                        onClick={() => handleDeptClick(dept)}
-                        className={`group relative overflow-hidden rounded-2xl border-2 text-left transition-all duration-300 cursor-pointer
-                          ${isSel
-                            ? `${cfg.selectedBorder} ${cfg.selectedBg} shadow-xl scale-[1.02]`
-                            : `${cfg.cardBg} border-slate-200 ${cfg.hoverBorder} ${cfg.hoverRing} shadow-sm hover:shadow-md hover:-translate-y-1`
-                          }`}
-                      >
-                        {/* Top gradient strip */}
-                        <div className={`h-1.5 w-full ${cfg.gradient}`} />
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                  {depts.map(item => (
+                    <div
+                      key={item.id}
+                      id={`dept-${item.id}`}
+                      onClick={() => handleDeptClick(item)}
+                      className="group relative text-left rounded-xl border-2 border-slate-200 bg-white hover:border-sky-400 hover:shadow-lg hover:-translate-y-0.5 overflow-hidden transition-all duration-200 cursor-pointer shadow-sm"
+                    >
+                      <div className={`h-1 w-full bg-gradient-to-r ${fc.gradient}`} />
 
-                        <div className="p-5 flex flex-col gap-2">
-                          {/* Icon + check */}
-                          <div className="flex items-start justify-between">
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all
-                              ${isSel
-                                ? `${cfg.gradient} text-white shadow-md`
-                                : `${cfg.iconBg} ${cfg.hoverTag}`
-                              }`}>
-                              <Icon className="w-5 h-5" />
-                            </div>
-                            {isSel && (
-                              <span className={`${cfg.selectedChip} text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full shadow-sm`}>
-                                Selected
-                              </span>
-                            )}
+                      <div className="p-4 space-y-2.5">
+                        <div className="flex items-start justify-between gap-1">
+                          <div className="w-8 h-8 rounded-lg bg-slate-100 group-hover:bg-sky-100 text-slate-500 group-hover:text-sky-600 flex items-center justify-center transition-all">
+                            <Icon className="w-4 h-4" />
                           </div>
-
-                          <h4 className={`text-2xl font-extrabold tracking-tight mt-1
-                            ${isSel ? 'text-slate-900' : 'text-slate-800'}`}>
-                            {dept.deptCode}
-                          </h4>
-                          <p className={`text-xs font-medium leading-snug line-clamp-2 min-h-[2rem]
-                            ${isSel ? 'text-slate-600' : 'text-slate-500'}`}>
-                            {dept.deptName || dept.semesterName}
-                          </p>
-
-                          {/* Footer row */}
-                          <div className={`flex items-center justify-between mt-2 pt-3 border-t ${isSel ? 'border-slate-200' : 'border-slate-100'}`}>
-                            <span className={`text-[10px] font-semibold uppercase tracking-wider ${isSel ? cfg.selectedTag : 'text-slate-400'}`}>
-                              {dept.semesterName}
-                            </span>
-                            <ArrowRight className={`w-4 h-4 transition-transform
-                              ${isSel
-                                ? `${cfg.selectedTag} translate-x-0`
-                                : `text-slate-300 group-hover:translate-x-1 ${cfg.hoverTag}`
-                              }`} />
-                          </div>
+                          {user && (
+                            <button
+                              type="button"
+                              onClick={e => handleDelete(e, item.id, item.department)}
+                              className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all"
+                              title="Remove"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
-                      </button>
-                    );
-                  })}
+
+                        <div>
+                          <h3 className="text-lg font-extrabold leading-tight tracking-tight text-slate-800 group-hover:text-sky-600 transition-colors">
+                            {item.department}
+                          </h3>
+                          <p className="text-[10px] text-slate-400 font-medium mt-0.5 truncate">
+                            {item.filename || item.semesterName || 'Class Routine'}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                          <div className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-slate-400" />
+                            <span className="text-[10px] font-semibold text-slate-500">{item.year}</span>
+                            <span className="text-[10px] text-slate-300 mx-0.5">·</span>
+                            <span className="text-[10px] font-semibold text-slate-500">{item.term}</span>
+                          </div>
+                          <ArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:translate-x-1 group-hover:text-sky-500 transition-all" />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </section>
             );
           })}
-        </div>
-      )}
-
-      {/* ── ROUTINE VIEWER ── */}
-      {selectedDept && (
-        <div ref={routineRef} className="space-y-5 pt-8 border-t-2 border-slate-200">
-
-          {/* Toolbar */}
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className={`w-12 h-12 rounded-2xl ${selectedFacultyCfg?.gradient || 'bg-slate-700'} flex items-center justify-center shadow-md ring-1 ring-white/20`}>
-                {selectedFacultyCfg?.icon &&
-                  (() => {
-                    const Icon = selectedFacultyCfg.icon;
-                    return <Icon className="w-6 h-6 text-white" />;
-                  })()}
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-slate-900 leading-tight">
-                  {selectedDept.deptCode}
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Class Routine · {currentSemName}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Semester Dropdown */}
-              <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm hover:border-indigo-400 transition-colors">
-                <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
-                <select
-                  id="semester-select"
-                  className="text-sm font-medium text-slate-700 outline-none bg-transparent cursor-pointer pr-1"
-                  value={selectedSemesterId}
-                  onChange={e => setSelectedSemesterId(e.target.value)}
-                >
-                  {semesters.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* PDF Download */}
-              {routineEntries.length > 0 && (
-                <button
-                  id="download-pdf"
-                  onClick={downloadPDF}
-                  disabled={downloadingPdf}
-                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-semibold rounded-xl shadow-md hover:shadow-lg transition-all text-sm disabled:opacity-60 disabled:cursor-wait"
-                >
-                  {downloadingPdf ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Download className="w-4 h-4" />
-                  )}
-                  {downloadingPdf ? 'Generating…' : 'Download PDF'}
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Grid */}
-          <div className="relative min-h-[200px]">
-            {loadingRoutine && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-10 rounded-xl">
-                <div className="flex flex-col items-center gap-2">
-                  <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
-                  <p className="text-xs text-slate-500">Loading routine…</p>
-                </div>
-              </div>
-            )}
-
-            {!loadingRoutine && routineEntries.length === 0 && (
-              <div className="bg-white border border-dashed border-slate-300 rounded-xl p-12 text-center">
-                <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                <p className="text-sm text-slate-500">No routine entries found for this selection.</p>
-              </div>
-            )}
-
-            {routineEntries.length > 0 && (
-              <div id="timetable-container" className="rounded-xl overflow-hidden shadow-[0_8px_30px_rgba(15,23,42,0.08)] border border-slate-200 bg-white">
-                <TimetableGrid
-                  entries={routineEntries}
-                  semesterName={currentSemName}
-                  departmentName={selectedDept.deptName}
-                />
-              </div>
-            )}
-          </div>
         </div>
       )}
     </div>

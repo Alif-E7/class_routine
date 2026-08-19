@@ -46,7 +46,7 @@ const CANONICAL = {
   dept:           'dept',
   year_sem:       'year_sem',
   teacher_abbr:   'teacher_abbr',
-  // Year_Sem (NEW)
+  // Year_Sem
   year:           'year',
   semester:       'semester',
   group_code:     'group_code',
@@ -61,18 +61,24 @@ const CANONICAL = {
   // Room_Preference
   year_group:     'year_group',
   weight_percent: 'weight_percent',
-  // Day_Preference (NEW)
+  // Day_Preference
   day:            'day',
   class_type:     'class_type',
-  note:           'note',
   // Teacher_Unavailability
   start_time:     'start_time',
   end_time:       'end_time',
   // Config (key/value)
   key:            'key',
   value:          'value',
-  // Dropdown list helper column
-  list:           'list',
+  faculty:        'faculty',
+  university:     'university',
+  working_days:   'working_days',
+  class_start:    'class_start',
+  class_end:      'class_end',
+  break_start:    'break_start',
+  break_end:      'break_end',
+  // Lists
+  department_full:'department_full',
 };
 
 // Aliases (case-insensitive, whitespace-stripped) → canonical.
@@ -87,7 +93,7 @@ function buildAliasMap() {
     map[canonical.replace(/_/g, ' ').toLowerCase()] = canonical;
     map[canonical.toUpperCase()] = canonical;
   }
-  // Friendly aliases from the build prompt.
+  // Friendly aliases
   map['teacher abbreviation'] = 'abbreviation';
   map['teacher name']         = 'full_name';
   map['course code']          = 'course_code';
@@ -109,12 +115,24 @@ function buildAliasMap() {
   map['classtype']            = 'class_type';
   map['type (lab | theory)']  = 'class_type';
   map['type (lab|theory)']    = 'class_type';
+  map['department full']      = 'department_full';
+  map['department_full']      = 'department_full';
   return map;
+}
+
+function cleanHeaderCell(raw) {
+  if (raw == null) return '';
+  return String(raw)
+    .replace(/[*]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
 }
 
 function normalizeKey(raw) {
   if (raw == null) return null;
-  const k = String(raw).trim().toLowerCase().replace(/\s+/g, ' ');
+  const k = cleanHeaderCell(raw);
+  if (!k) return null;
   return ALIASES[k] || ALIASES[k.replace(/ /g, '_')] || null;
 }
 
@@ -129,6 +147,7 @@ const SHEET_HINTS = {
   Day_Preference:         ['day', 'class_type', 'weight_percent'],
   Teacher_Unavailability: ['teacher_abbr', 'start_time', 'end_time'],
   Config:                 ['key', 'value'],
+  Lists:                  ['config_year', 'config_semester', 'faculty', 'department_full'],
 };
 
 class ParseError extends Error {
@@ -142,10 +161,11 @@ class ParseError extends Error {
 function findHeaderRow(rows, sheetName) {
   const hints = SHEET_HINTS[sheetName] || [];
   for (let i = 0; i < rows.length; i++) {
-    const cells = (rows[i] || []).map(c => (c == null ? '' : String(c).trim().toLowerCase()));
+    const cells = (rows[i] || []).map(c => cleanHeaderCell(c));
     let hits = 0;
     for (const hint of hints) {
-      if (cells.includes(hint) || cells.includes(hint.replace(/_/g, ' '))) hits++;
+      const hClean = hint.toLowerCase();
+      if (cells.includes(hClean) || cells.includes(hClean.replace(/_/g, ' '))) hits++;
     }
     if (hits >= Math.min(2, hints.length)) return i;
   }
@@ -225,7 +245,7 @@ function rowsToObjects(rows, headerIndex) {
     }
     // For Config sheet, normalize value based on key
     if (obj.key && obj.value != null) {
-      const k = String(obj.key).trim();
+      const k = String(obj.key).trim().toLowerCase();
       if (k === 'class_start' || k === 'class_end' || k === 'break_start' || k === 'break_end') {
         obj.value = normalizeTimeInput(obj.value);
       }
@@ -239,75 +259,198 @@ function parseConfigRows(rows) {
   const out = {};
   for (const r of rows) {
     if (!r.key) continue;
-    out[String(r.key).trim()] = r.value == null ? '' : String(r.value).trim();
+    const k = String(r.key).trim();
+    out[k] = r.value == null ? '' : String(r.value).trim();
   }
   return out;
 }
 
+/**
+ * Auto-complement Room_Preference rows.
+ *
+ * Entries are in pairs for year_group '1-2' <-> '3-4'.
+ * If one year_group is present for a room_id and the other is missing/empty,
+ * derive the complement as (100 - weight).
+ */
+function complementRoomPreference(rows) {
+  const normalised = rows.map(r => ({
+    ...r,
+    room_id: r.room_id ? String(r.room_id).trim() : null,
+    year_group: r.year_group ? String(r.year_group).trim() : null,
+    weight_percent: r.weight_percent != null && String(r.weight_percent).trim() !== ''
+      ? String(r.weight_percent).trim()
+      : null,
+  })).filter(r => r.room_id && r.year_group);
+
+  const byRoom = new Map();
+  for (const r of normalised) {
+    if (!byRoom.has(r.room_id)) byRoom.set(r.room_id, {});
+    byRoom.get(r.room_id)[r.year_group] = r;
+  }
+
+  const out = [];
+  for (const [roomId, groups] of byRoom.entries()) {
+    const junior = groups['1-2'];
+    const senior = groups['3-4'];
+
+    const jWeight = junior && junior.weight_percent != null && !Number.isNaN(Number(junior.weight_percent))
+      ? Number(junior.weight_percent)
+      : null;
+    const sWeight = senior && senior.weight_percent != null && !Number.isNaN(Number(senior.weight_percent))
+      ? Number(senior.weight_percent)
+      : null;
+
+    if (jWeight != null && sWeight != null) {
+      out.push(junior);
+      out.push(senior);
+    } else if (jWeight != null) {
+      out.push(junior);
+      out.push({
+        room_id: roomId,
+        year_group: '3-4',
+        weight_percent: String(100 - jWeight),
+      });
+    } else if (sWeight != null) {
+      out.push({
+        room_id: roomId,
+        year_group: '1-2',
+        weight_percent: String(100 - sWeight),
+      });
+      out.push(senior);
+    } else {
+      if (junior) out.push(junior);
+      if (senior) out.push(senior);
+    }
+  }
+  return out;
+}
 
 /**
  * Auto-complement Day_Preference rows.
  *
- * The Excel file only requires Lab weights as input; Theory = 100 - Lab.
- * This function:
- *   1. Accepts whatever rows came from the sheet (may have both Lab and
- *      Theory rows, or only Lab rows).
- *   2. Ensures every day that has a Lab row also has a Theory row
- *      (derived as 100 - Lab%).
- *   3. Normalises class_type casing to 'Lab' / 'Theory'.
+ * Ensures every day that has a Lab row also has a Theory row (100 - Lab%)
+ * and vice versa.
  */
 function complementDayPreference(rows) {
-  // Normalise casing first.
   const normalised = rows.map(r => ({
     ...r,
+    day: r.day ? String(r.day).toUpperCase().trim() : null,
     class_type: r.class_type
       ? (String(r.class_type).trim().toLowerCase() === 'lab' ? 'Lab' : 'Theory')
       : null,
-    weight_percent: r.weight_percent != null ? String(r.weight_percent).trim() : null,
-  }));
+    weight_percent: r.weight_percent != null && String(r.weight_percent).trim() !== ''
+      ? String(r.weight_percent).trim()
+      : null,
+  })).filter(r => r.day && r.class_type);
 
-  // Index by day → { Lab: row, Theory: row }
   const byDay = new Map();
   for (const r of normalised) {
-    if (!r.day || !r.class_type) continue;
-    const d = String(r.day).toUpperCase().trim();
-    if (!byDay.has(d)) byDay.set(d, {});
-    byDay.get(d)[r.class_type] = r;
+    if (!byDay.has(r.day)) byDay.set(r.day, {});
+    byDay.get(r.day)[r.class_type] = r;
   }
 
-  // Derive missing Theory rows from Lab rows (and vice versa as fallback).
   const out = [];
   for (const [d, types] of byDay.entries()) {
     const labRow = types['Lab'];
     const theoryRow = types['Theory'];
 
-    if (labRow) {
+    const labW = labRow && labRow.weight_percent != null && !Number.isNaN(Number(labRow.weight_percent))
+      ? Number(labRow.weight_percent)
+      : null;
+    const thW = theoryRow && theoryRow.weight_percent != null && !Number.isNaN(Number(theoryRow.weight_percent))
+      ? Number(theoryRow.weight_percent)
+      : null;
+
+    if (labW != null && thW != null) {
       out.push(labRow);
-      if (!theoryRow) {
-        const labW = Number(labRow.weight_percent);
-        const derivedW = Number.isFinite(labW) ? 100 - labW : 50;
-        out.push({
-          ...labRow,
-          class_type: 'Theory',
-          weight_percent: String(derivedW),
-          note: 'auto-complement',
-        });
-      } else {
-        out.push(theoryRow);
-      }
-    } else if (theoryRow) {
       out.push(theoryRow);
-      const thW = Number(theoryRow.weight_percent);
-      const derivedW = Number.isFinite(thW) ? 100 - thW : 50;
+    } else if (labW != null) {
+      out.push(labRow);
       out.push({
-        ...theoryRow,
-        class_type: 'Lab',
-        weight_percent: String(derivedW),
-        note: 'auto-complement',
+        day: d,
+        class_type: 'Theory',
+        weight_percent: String(100 - labW),
       });
+    } else if (thW != null) {
+      out.push({
+        day: d,
+        class_type: 'Lab',
+        weight_percent: String(100 - thW),
+      });
+      out.push(theoryRow);
+    } else {
+      if (labRow) out.push(labRow);
+      if (theoryRow) out.push(theoryRow);
     }
   }
   return out;
+}
+
+/**
+ * Parse Lists sheet (dropdown source data).
+ * Real headers are directly on Row 1 (0-indexed row 0).
+ */
+function parseListsSheet(ws) {
+  if (!ws) return null;
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: false });
+  if (rows.length === 0) return null;
+
+  const headerRow = rows[0] || [];
+  const headers = headerRow.map(h => (h == null ? '' : String(h).trim()));
+
+  const colData = {};
+  for (let c = 0; c < headers.length; c++) {
+    const name = headers[c];
+    if (!name) continue;
+    colData[name] = [];
+    for (let r = 1; r < rows.length; r++) {
+      const val = rows[r] ? rows[r][c] : null;
+      if (val != null && String(val).trim() !== '') {
+        colData[name].push(String(val).trim());
+      }
+    }
+  }
+
+  const faculties = [...new Set(colData['Faculty'] || [])];
+  const departmentsFull = [...new Set(colData['Department_Full'] || [])];
+
+  const facultyDepartments = {};
+  for (const [key, list] of Object.entries(colData)) {
+    if (key.startsWith('dep_')) {
+      facultyDepartments[key] = [...new Set(list)];
+    }
+  }
+
+  // Map each faculty name to its department list
+  const facultyDepMap = {};
+  for (let i = 0; i < faculties.length; i++) {
+    const fac = faculties[i];
+    // Check direct dep_ column matches
+    const depKey = Object.keys(facultyDepartments).find(
+      k => k.toLowerCase().replace(/_/g, '') === `dep${fac.toLowerCase().replace(/[^a-z0-9]/g, '')}`
+    );
+    if (depKey && facultyDepartments[depKey]) {
+      facultyDepMap[fac] = facultyDepartments[depKey];
+    }
+  }
+
+  // Also read Faculty_Dependent_Name & Faculty_Dependent_Key mapping if present
+  if (colData['Faculty_Dependent_Name'] && colData['Faculty_Dependent_Key']) {
+    for (let i = 0; i < colData['Faculty_Dependent_Name'].length; i++) {
+      const facName = colData['Faculty_Dependent_Name'][i];
+      const depKey = colData['Faculty_Dependent_Key'][i];
+      if (facName && depKey && facultyDepartments[depKey]) {
+        facultyDepMap[facName] = facultyDepartments[depKey];
+      }
+    }
+  }
+
+  return {
+    faculties,
+    departments: departmentsFull,
+    facultyDepartments: facultyDepMap,
+    rawColumns: colData,
+  };
 }
 
 function parseWorkbook(buffer, filename) {
@@ -347,14 +490,20 @@ function parseWorkbook(buffer, filename) {
 
     if (sheetName === 'Config') {
       result.config = parseConfigRows(objs);
+    } else if (sheetName === 'Room_Preference') {
+      result.room_preference = complementRoomPreference(objs);
     } else if (sheetName === 'Day_Preference') {
-      // Auto-complement Lab ↔ Theory before storing.
       result.day_preference = complementDayPreference(objs);
     } else {
       // Map sheet name → snake_case key on the result object.
       const key = sheetName.toLowerCase();
       result[key] = objs;
     }
+  }
+
+  // Parse Lists sheet if available (for dropdown source validation / mappings)
+  if (sheetNames.includes('Lists')) {
+    result.lists = parseListsSheet(workbook.Sheets['Lists']);
   }
 
   return result;
@@ -364,8 +513,12 @@ module.exports = {
   parseWorkbook,
   ParseError,
   normalizeKey,
+  cleanHeaderCell,
   findHeaderRow,
   CANONICAL,
+  complementRoomPreference,
   complementDayPreference,
+  parseListsSheet,
   normalizeTimeInput,
 };
+

@@ -121,10 +121,11 @@ function validate(workbook) {
   // ╔═══════════════════════════════════════════════════════════════╗
   // ║ V1 — teacher_abbr references resolve to Teachers             ║
   // ╚═══════════════════════════════════════════════════════════════╝
-  const teacherAbbrSet = new Set(teachers.map(t => t.abbreviation).filter(Boolean));
+  const teacherAbbrSet = new Set(teachers.map(t => String(t.abbreviation || '').trim()).filter(Boolean));
   for (let i = 0; i < courses.length; i++) {
     const c = courses[i];
-    if (c.teacher_abbr && !teacherAbbrSet.has(c.teacher_abbr)) {
+    const abbr = String(c.teacher_abbr || '').trim();
+    if (abbr && !teacherAbbrSet.has(abbr)) {
       errors.push(issue(
         'Courses', i + 1, 'teacher_abbr', 'V1',
         `teacher_abbr "${c.teacher_abbr}" not found in Teachers.abbreviation`,
@@ -134,7 +135,8 @@ function validate(workbook) {
   }
   for (let i = 0; i < teacherUnavail.length; i++) {
     const u = teacherUnavail[i];
-    if (u.teacher_abbr && !teacherAbbrSet.has(u.teacher_abbr)) {
+    const abbr = String(u.teacher_abbr || '').trim();
+    if (abbr && !teacherAbbrSet.has(abbr)) {
       errors.push(issue(
         'Teacher_Unavailability', i + 1, 'teacher_abbr', 'V1',
         `teacher_abbr "${u.teacher_abbr}" not found in Teachers.abbreviation`,
@@ -146,7 +148,7 @@ function validate(workbook) {
   // ╔═══════════════════════════════════════════════════════════════╗
   // ║ V2 — credit in Courses exists in Credit_Rules.credit         ║
   // ╚═══════════════════════════════════════════════════════════════╝
-  const ruleCreditSet = new Set(creditRules.map(c => c.credit).filter(Boolean));
+  const ruleCreditSet = new Set(creditRules.map(c => String(c.credit || '').trim()).filter(Boolean));
   for (let i = 0; i < courses.length; i++) {
     const c = courses[i];
     if (c.credit == null || c.credit === '') continue;
@@ -163,10 +165,11 @@ function validate(workbook) {
   // ╔═══════════════════════════════════════════════════════════════╗
   // ║ V3 — room_id in Room_Preference exists in Rooms.room_id      ║
   // ╚═══════════════════════════════════════════════════════════════╝
-  const roomIdSet = new Set(rooms.map(r => r.room_id).filter(Boolean));
+  const roomIdSet = new Set(rooms.map(r => String(r.room_id || '').trim()).filter(Boolean));
   for (let i = 0; i < roomPref.length; i++) {
     const p = roomPref[i];
-    if (p.room_id && !roomIdSet.has(p.room_id)) {
+    const rId = String(p.room_id || '').trim();
+    if (rId && !roomIdSet.has(rId)) {
       errors.push(issue(
         'Room_Preference', i + 1, 'room_id', 'V3',
         `room_id "${p.room_id}" not found in Rooms.room_id`,
@@ -295,7 +298,7 @@ function validate(workbook) {
   for (let i = 0; i < courses.length; i++) {
     const c = courses[i];
     const rule = creditRules.find(r => String(r.credit).trim() === String(c.credit || '').trim());
-    const type = rule ? rule.type : null;
+    const type = rule ? (String(rule.type).toLowerCase().trim() === 'lab' ? 'lab' : 'classroom') : null;
     const sessions = rule ? Number(rule.classes_per_week) : null;
     const cpnDay = type ? rooms.some(r => r.type === type) : false;
     if (type && !cpnDay) {
@@ -330,16 +333,17 @@ function validate(workbook) {
   // ╔═══════════════════════════════════════════════════════════════╗
   // ║ V11 (NEW) — Courses.year_sem must exist in Year_Sem.year_sem ║
   // ╚═══════════════════════════════════════════════════════════════╝
-  const yearSemValueSet = new Set(yearSemRows.map(r => r.year_sem).filter(Boolean));
+  const yearSemValueSet = new Set(yearSemRows.map(r => String(r.year_sem || '').trim()).filter(Boolean));
   for (let i = 0; i < courses.length; i++) {
     const c = courses[i];
-    if (!c.year_sem || c.year_sem === '') {
+    const ysVal = String(c.year_sem || '').trim();
+    if (!ysVal) {
       errors.push(issue(
         'Courses', i + 1, 'year_sem', 'V11',
         `Course "${c.course_code}" is missing a year_sem value`,
         c.year_sem
       ));
-    } else if (!yearSemValueSet.has(c.year_sem)) {
+    } else if (!yearSemValueSet.has(ysVal)) {
       errors.push(issue(
         'Courses', i + 1, 'year_sem', 'V11',
         `year_sem "${c.year_sem}" for course "${c.course_code}" does not exist in Year_Sem sheet`,
@@ -385,7 +389,7 @@ function validate(workbook) {
   }
 
   // ╔═══════════════════════════════════════════════════════════════╗
-  // ║ V13 (NEW) — Day_Preference weights per day sum to ≈100 (±1)  ║
+  // ║ V13 — Day_Preference weights per day sum to ≈100 (±1)        ║
   // ╚═══════════════════════════════════════════════════════════════╝
   const dpByDay = new Map();
   for (const dp of dayPref) {
@@ -403,11 +407,245 @@ function validate(workbook) {
     }
   }
 
+  // ╔═══════════════════════════════════════════════════════════════╗
+  // ║ V15 — Faculty & Department dependency in Config               ║
+  // ║ V16 — Year & Semester in Config                              ║
+  // ╚═══════════════════════════════════════════════════════════════╝
+  const facDeptMap = (workbook.lists && workbook.lists.facultyDepartments && Object.keys(workbook.lists.facultyDepartments).length > 0)
+    ? workbook.lists.facultyDepartments
+    : AUTHORITATIVE_FACULTY_DEPARTMENTS;
+
+  if (config.faculty) {
+    const rawFac = String(config.faculty).trim();
+    const resolvedFac = resolveFacultyName(rawFac);
+    if (!resolvedFac && !facDeptMap[rawFac]) {
+      errors.push(issue(
+        'Config', null, 'faculty', 'V15',
+        `Unknown faculty "${config.faculty}" — must be one of: ${Object.keys(AUTHORITATIVE_FACULTY_DEPARTMENTS).join(', ')}`,
+        config.faculty
+      ));
+    } else if (config.department) {
+      const canonicalFac = resolvedFac || rawFac;
+      const validDepts = facDeptMap[canonicalFac] || facDeptMap[rawFac] || [];
+      const deptRaw = String(config.department).trim();
+      const match = validDepts.some(d => matchDepartment(deptRaw, d));
+      if (!match) {
+        let correctFaculty = null;
+        for (const [fac, depts] of Object.entries(facDeptMap)) {
+          if (depts.some(d => matchDepartment(deptRaw, d))) {
+            correctFaculty = fac;
+            break;
+          }
+        }
+        if (correctFaculty) {
+          errors.push(issue(
+            'Config', null, 'department', 'V15',
+            `Department "${config.department}" belongs to "${correctFaculty}" rather than "${config.faculty}". Please set faculty to "${correctFaculty}" in the Config sheet.`,
+            config.department
+          ));
+        } else {
+          errors.push(issue(
+            'Config', null, 'department', 'V15',
+            `Department "${config.department}" does not belong to faculty "${canonicalFac}"`,
+            config.department
+          ));
+        }
+      }
+    }
+  }
+
+  if (config.year != null && String(config.year).trim() !== '') {
+    const yr = Number(config.year);
+    if (!Number.isInteger(yr) || yr < 1900 || yr > 2100) {
+      errors.push(issue(
+        'Config', null, 'year', 'V16',
+        `year "${config.year}" must be a 4-digit integer (e.g. 2026)`,
+        config.year
+      ));
+    }
+  }
+
   return {
     errors,
     warnings,
     isValid: errors.length === 0,
   };
+}
+
+const DEPT_ALIAS_GROUPS = [
+  ['cse', 'computer science and engineering', 'computer science and engineering (cse)'],
+  ['eee', 'electrical and electronic engineering', 'electrical and electronic engineering (eee)'],
+  ['ete', 'electronics and telecommunication engineering', 'electronics and telecommunication engineering (ete)'],
+  ['acce', 'applied chemistry and chemical engineering', 'applied chemistry and chemical engineering (acce)'],
+  ['ce', 'civil engineering', 'civil engineering (ce)'],
+  ['food and agroprocess engineering', 'food engineering', 'food engineering (fe)', 'fe', 'fape'],
+  ['arch', 'architecture', 'architecture (arch)'],
+  ['mathematics', 'math', 'maths'],
+  ['statistics', 'stat', 'stats'],
+  ['chemistry', 'chem'],
+  ['physics', 'phy'],
+  ['esdm', 'environmental science and disaster management', 'environmental science & disaster management', 'environmental science and disaster management (esdm)'],
+  ['pharmacy', 'pharm'],
+  ['bge', 'biotechnology and genetic engineering', 'biotechnology and genetic engineering (bge)'],
+  ['bmb', 'biochemistry and molecular biology', 'biochemistry and molecular biology (bmb)'],
+  ['botany', 'bot'],
+  ['english', 'eng'],
+  ['bangla', 'bengali', 'ban'],
+  ['history', 'his'],
+  ['psychology', 'psy'],
+  ['sociology', 'soc'],
+  ['pad', 'public administration', 'public administration (pad)'],
+  ['ir', 'international relations', 'international relations (ir)'],
+  ['economics', 'econ', 'eco'],
+  ['ps', 'political science', 'political science (ps)'],
+  ['management studies', 'management', 'mgt'],
+  ['ais', 'accounting and information systems', 'accounting and information systems (ais)', 'accounting'],
+  ['marketing', 'mkt'],
+  ['finance and banking', 'finance & banking', 'finance', 'fb'],
+  ['thm', 'tourism and hospitality management', 'tourism and hospitality management (thm)'],
+  ['law', 'llb'],
+  ['asvm', 'animal science and veterinary medicine', 'animal science and veterinary medicine (asvm)', 'dvm'],
+  ['agriculture', 'agri'],
+  ['fmb', 'fisheries and marine bioscience', 'fisheries and marine bioscience (fmb)', 'fisheries'],
+];
+
+function normalizeDeptName(d) {
+  if (!d) return '';
+  return String(d)
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/\(.*?\)/g, '')
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
+function matchDepartment(input, target) {
+  if (!input || !target) return false;
+  const inRaw = String(input).trim().toLowerCase();
+  const tgtRaw = String(target).trim().toLowerCase();
+  if (inRaw === tgtRaw) return true;
+
+  const inNorm = normalizeDeptName(input);
+  const tgtNorm = normalizeDeptName(target);
+  if (inNorm && tgtNorm && inNorm === tgtNorm) return true;
+
+  // Check alias groups
+  for (const group of DEPT_ALIAS_GROUPS) {
+    const inMatch = group.some(a => a === inRaw || normalizeDeptName(a) === inNorm);
+    const tgtMatch = group.some(a => a === tgtRaw || normalizeDeptName(a) === tgtNorm);
+    if (inMatch && tgtMatch) return true;
+  }
+
+  return false;
+}
+
+const AUTHORITATIVE_FACULTY_DEPARTMENTS = {
+  'Engineering Faculty': [
+    'CSE',
+    'EEE',
+    'ETE',
+    'ACCE',
+    'CE',
+    'Food and Agroprocess Engineering',
+    'ARCH',
+    'Computer Science and Engineering (CSE)',
+    'Electrical and Electronic Engineering (EEE)',
+    'Electronics and Telecommunication Engineering (ETE)',
+    'Applied Chemistry and Chemical Engineering (ACCE)',
+    'Civil Engineering (CE)',
+    'Food Engineering (FE)',
+    'Architecture (ARCH)',
+  ],
+  'Science Faculty': [
+    'Mathematics',
+    'Statistics',
+    'Chemistry',
+    'Physics',
+    'ESDM',
+    'Environmental Science & Disaster Management',
+    'Environmental Science and Disaster Management (ESDM)',
+  ],
+  'Life Science Faculty': [
+    'Pharmacy',
+    'BGE',
+    'BMB',
+    'Botany',
+    'Biotechnology and Genetic Engineering (BGE)',
+    'Biochemistry and Molecular Biology (BMB)',
+  ],
+  'Humanities Faculty': [
+    'English',
+    'Bangla',
+    'History',
+  ],
+  'Social Science Faculty': [
+    'Psychology',
+    'Sociology',
+    'PAD',
+    'IR',
+    'Economics',
+    'PS',
+    'Public Administration (PAD)',
+    'International Relations (IR)',
+    'Political Science (PS)',
+  ],
+  'Business Studies Faculty': [
+    'Management Studies',
+    'AIS',
+    'Marketing',
+    'Finance and Banking',
+    'THM',
+    'Accounting and Information Systems (AIS)',
+    'Tourism and Hospitality Management (THM)',
+  ],
+  'Law Faculty': [
+    'Law',
+  ],
+  'Animal Science and Veterinary Medicine Faculty': [
+    'ASVM',
+    'Animal Science and Veterinary Medicine (ASVM)',
+  ],
+  'Faculty of Agriculture': [
+    'Agriculture',
+    'FMB',
+    'Fisheries and Marine Bioscience (FMB)',
+  ],
+};
+
+const ALL_AUTHORITATIVE_DEPARTMENTS = Object.values(AUTHORITATIVE_FACULTY_DEPARTMENTS).flat();
+
+function cleanFacultyToken(name) {
+  if (!name) return '';
+  return String(name)
+    .toLowerCase()
+    .replace(/faculty|\(|\)|of|arts/g, '')
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
+function resolveFacultyName(name) {
+  if (!name) return null;
+  const s = String(name).trim().toLowerCase();
+  // 1. Exact match on full faculty key
+  for (const fac of Object.keys(AUTHORITATIVE_FACULTY_DEPARTMENTS)) {
+    if (fac.toLowerCase() === s) return fac;
+  }
+  // 2. Exact match on cleaned token
+  const cleanedInput = cleanFacultyToken(name);
+  for (const fac of Object.keys(AUTHORITATIVE_FACULTY_DEPARTMENTS)) {
+    if (cleanFacultyToken(fac) === cleanedInput) return fac;
+  }
+  // 3. Known specific keywords (in strict specificity order)
+  if (s.includes('life')) return 'Life Science Faculty';
+  if (s.includes('social')) return 'Social Science Faculty';
+  if (s.includes('business')) return 'Business Studies Faculty';
+  if (s.includes('humanities') || s.includes('arts')) return 'Humanities Faculty';
+  if (s.includes('agri')) return 'Faculty of Agriculture';
+  if (s.includes('animal') || s.includes('veterinary') || s.includes('asvm')) return 'Animal Science and Veterinary Medicine Faculty';
+  if (s.includes('eng')) return 'Engineering Faculty';
+  if (s.includes('law')) return 'Law Faculty';
+  if (s.includes('science')) return 'Science Faculty';
+  return null;
 }
 
 module.exports = {
@@ -416,6 +654,11 @@ module.exports = {
   VALID_DAYS_UNAVAIL,
   VALID_GROUP_CODES,
   VALID_IS_ACTIVE,
+  AUTHORITATIVE_FACULTY_DEPARTMENTS,
+  ALL_AUTHORITATIVE_DEPARTMENTS,
+  resolveFacultyName,
+  matchDepartment,
+  normalizeDeptName,
   yearGroupFromYearSem,
   groupCodeFromRow,
 };

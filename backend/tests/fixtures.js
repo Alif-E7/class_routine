@@ -86,9 +86,13 @@ function buildBrokenWorkbook() {
       //   break_start (15:00) > break_end (10:00)    → rule 1
       //   class_start (16:00) > break_start (15:00)  → rule 2
       //   break_end   (10:00) >= class_end (09:00)   → rule 3
+      // V15 — unknown faculty
+      // V16 — invalid year
       university:    'Gopalganj Science and Technology University',
-      department:    'Computer Science and Engineering',
-      semester:      '2026 July-December',
+      faculty:       'Invalid Faculty Name',
+      department:    'Computer Science and Engineering (CSE)',
+      year:          'NOT_A_YEAR',
+      semester:      'Fall',
       working_days:  'SUN,MON,TUE,WED,THU',
       class_start:   '16:00',
       class_end:     '09:00',
@@ -106,8 +110,8 @@ function buildCleanWorkbook() {
   return {
     filename: 'clean-sample.xlsx',
     teachers: [
-      { full_name: 'Dr. Ayesha Rahman',  abbreviation: 'AYR', designation: 'Associate Professor', department: 'CSE' },
-      { full_name: 'Dr. Bikash Chandra', abbreviation: 'BIC', designation: 'Assistant Professor', department: 'CSE' },
+      { full_name: 'Dr. Ayesha Rahman',  abbreviation: 'AYR', designation: 'Associate Professor', department: 'Computer Science and Engineering (CSE)' },
+      { full_name: 'Dr. Bikash Chandra', abbreviation: 'BIC', designation: 'Assistant Professor', department: 'Computer Science and Engineering (CSE)' },
     ],
     // NEW: Year_Sem master lookup — courses reference '1-1' which must exist here.
     year_sem: [
@@ -121,8 +125,8 @@ function buildCleanWorkbook() {
       { year_sem: '4-2', year: '4', semester: '2', group_code: '3-4', is_active: 'No' },
     ],
     courses: [
-      { course_code: 'CSE101', course_name: 'Intro to CS',   credit: '3.0', dept: 'CSE', year_sem: '1-1', teacher_abbr: 'AYR' },
-      { course_code: 'CSE102', course_name: 'Discrete Math', credit: '2.0', dept: 'CSE', year_sem: '1-1', teacher_abbr: 'BIC' },
+      { course_code: 'CSE101', course_name: 'Intro to CS',   credit: '3.0', dept: 'Computer Science and Engineering (CSE)', year_sem: '1-1', teacher_abbr: 'AYR' },
+      { course_code: 'CSE102', course_name: 'Discrete Math', credit: '2.0', dept: 'Computer Science and Engineering (CSE)', year_sem: '1-1', teacher_abbr: 'BIC' },
     ],
     rooms: [
       { room_id: 'R101', room_name: 'Room 101', type: 'classroom' },
@@ -154,8 +158,10 @@ function buildCleanWorkbook() {
     ],
     config: {
       university:    'Gopalganj Science and Technology University',
-      department:    'Computer Science and Engineering',
-      semester:      '2026 July-December',
+      faculty:       'Engineering Faculty',
+      department:    'Computer Science and Engineering (CSE)',
+      year:          '2026',
+      semester:      'Fall',
       working_days:  'SUN,MON,TUE,WED,THU',
       class_start:   '09:00',
       class_end:     '15:50',

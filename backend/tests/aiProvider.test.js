@@ -6,20 +6,20 @@
  * The provider has three public helpers (explainFailure,
  * explainRoutine, parseEditRequest) and a private _internal
  * surface we exercise for prompt-building / JSON-extraction
- * correctness. Network calls are not made unless GROQ_API_KEY
+ * correctness. Network calls are not made unless OPENROUTER_API_KEY
  * is set; these tests run cleanly without any key configured.
  */
 
 const ai = require('../src/services/aiProvider');
 
 describe('aiProvider — defaults + capability', () => {
-  test('default model name is llama-3.3-70b-versatile', () => {
-    expect(ai._internal.DEFAULT_MODEL).toBe('llama-3.3-70b-versatile');
+  test('default model name is openrouter/free', () => {
+    expect(ai._internal.DEFAULT_MODEL).toBe('openrouter/free');
   });
 
-  test('default base URL is the Groq OpenAI-compatible endpoint', () => {
+  test('default base URL is the OpenRouter endpoint', () => {
     expect(ai._internal.DEFAULT_BASE_URL).toBe(
-      'https://api.groq.com/openai/v1'
+      'https://openrouter.ai/api/v1'
     );
   });
 
@@ -28,47 +28,47 @@ describe('aiProvider — defaults + capability', () => {
     expect(ai._internal.MAX_SCHEDULE_ROWS).toBeGreaterThan(0);
   });
 
-  test('isEnabled() returns false when GROQ_API_KEY is unset', () => {
-    const prev = process.env.GROQ_API_KEY;
-    delete process.env.GROQ_API_KEY;
+  test('isEnabled() returns false when OPENROUTER_API_KEY is unset', () => {
+    const prev = process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
     try {
       expect(ai.isEnabled()).toBe(false);
     } finally {
-      if (prev !== undefined) process.env.GROQ_API_KEY = prev;
+      if (prev !== undefined) process.env.OPENROUTER_API_KEY = prev;
     }
   });
 
-  test('isEnabled() returns true when GROQ_API_KEY is a non-empty string', () => {
-    const prev = process.env.GROQ_API_KEY;
-    process.env.GROQ_API_KEY = 'gsk.test_key_for_unit_test_only';
+  test('isEnabled() returns true when OPENROUTER_API_KEY is a non-empty string', () => {
+    const prev = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = 'sk-or-v1-test_key_for_unit_test_only';
     try {
       expect(ai.isEnabled()).toBe(true);
     } finally {
-      if (prev === undefined) delete process.env.GROQ_API_KEY;
-      else process.env.GROQ_API_KEY = prev;
+      if (prev === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = prev;
     }
   });
 });
 
 describe('aiProvider — explainFailure (no key)', () => {
   test('returns available:false with reason no_api_key', async () => {
-    const prev = process.env.GROQ_API_KEY;
-    delete process.env.GROQ_API_KEY;
+    const prev = process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
     try {
       const r = await ai.explainFailure({ message: 'no slot for CSE406', details: {} });
       expect(r.available).toBe(false);
       expect(r.reason).toBe('no_api_key');
       expect(r.friendly_hint).toBeNull();
     } finally {
-      if (prev !== undefined) process.env.GROQ_API_KEY = prev;
+      if (prev !== undefined) process.env.OPENROUTER_API_KEY = prev;
     }
   });
 });
 
 describe('aiProvider — explainRoutine (no key)', () => {
   test('returns available:false with reason no_api_key', async () => {
-    const prev = process.env.GROQ_API_KEY;
-    delete process.env.GROQ_API_KEY;
+    const prev = process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
     try {
       const r = await ai.explainRoutine({
         schedule: [{ course_code: 'CSE406', day: 'SUN', slot_start: 540, slot_end: 590 }],
@@ -78,15 +78,15 @@ describe('aiProvider — explainRoutine (no key)', () => {
       expect(r.reason).toBe('no_api_key');
       expect(r.answer).toBeNull();
     } finally {
-      if (prev !== undefined) process.env.GROQ_API_KEY = prev;
+      if (prev !== undefined) process.env.OPENROUTER_API_KEY = prev;
     }
   });
 });
 
 describe('aiProvider — parseEditRequest (no key)', () => {
   test('returns available:false with reason no_api_key', async () => {
-    const prev = process.env.GROQ_API_KEY;
-    delete process.env.GROQ_API_KEY;
+    const prev = process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
     try {
       const r = await ai.parseEditRequest({
         schedule: [],
@@ -96,7 +96,7 @@ describe('aiProvider — parseEditRequest (no key)', () => {
       expect(r.reason).toBe('no_api_key');
       expect(r.proposal).toBeNull();
     } finally {
-      if (prev !== undefined) process.env.GROQ_API_KEY = prev;
+      if (prev !== undefined) process.env.OPENROUTER_API_KEY = prev;
     }
   });
 });
@@ -212,17 +212,17 @@ describe('aiProvider._internal.normalizeEditProposal', () => {
   });
 
   test('truncates oversized summary / concerns / question strings', () => {
-    const long = 'a'.repeat(2000);
+    const long = 'a'.repeat(6000);
     const parsed = normalizeEditProposal({
       kind: 'clarifying_question',
       summary: long,
       question: long,
-      concerns: [long, long, long, long, long, long, long, long, long, long],
+      concerns: Array(15).fill(long),
     });
-    expect(parsed.summary.length).toBeLessThanOrEqual(300);
-    expect(parsed.question.length).toBeLessThanOrEqual(500);
-    expect(parsed.concerns.length).toBeLessThanOrEqual(8);
-    parsed.concerns.forEach((c) => expect(c.length).toBeLessThanOrEqual(200));
+    expect(parsed.summary.length).toBeLessThanOrEqual(1000);
+    expect(parsed.question.length).toBeLessThanOrEqual(1000);
+    expect(parsed.concerns.length).toBeLessThanOrEqual(10);
+    parsed.concerns.forEach((c) => expect(c.length).toBeLessThanOrEqual(500));
   });
 });
 
@@ -342,9 +342,10 @@ describe('aiProvider._internal — prompt builders', () => {
 
   test('buildEditPrompt includes the JSON schema hint', () => {
     const p = buildEditPrompt({ schedule: [], prompt: 'Move X to Monday' });
-    expect(p).toContain('"kind": "proposed_change"');
-    expect(p).toContain('"clarifying_question"');
-    expect(p).toContain('Move X to Monday');
+    const str = JSON.stringify(p);
+    expect(str).toContain('proposed_change');
+    expect(str).toContain('clarifying_question');
+    expect(str).toContain('Move X to Monday');
   });
 });
 
@@ -419,8 +420,8 @@ describe('aiProvider._internal.buildValidatorPrompt', () => {
 
 describe('aiProvider — explainValidator (no key)', () => {
   test('returns available:false / reason no_api_key without making a network call', async () => {
-    const prev = process.env.GROQ_API_KEY;
-    delete process.env.GROQ_API_KEY;
+    const prev = process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
     try {
       const r = await ai.explainValidator({
         severity: 'error',
@@ -431,7 +432,7 @@ describe('aiProvider — explainValidator (no key)', () => {
       expect(r.reason).toBe('no_api_key');
       expect(r.explanation).toBeNull();
     } finally {
-      if (prev !== undefined) process.env.GROQ_API_KEY = prev;
+      if (prev !== undefined) process.env.OPENROUTER_API_KEY = prev;
     }
   });
 
@@ -500,11 +501,11 @@ describe('aiProvider — explainValidator (happy path with board suggestion)', (
 
   afterEach(() => {
     delete global.fetch;
-    delete process.env.GROQ_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
   });
 
   test('returns explanation + board_suggestion split from the model output', async () => {
-    process.env.GROQ_API_KEY = 'test-key';
+    process.env.OPENROUTER_API_KEY = 'test-key';
     mockFetchOnce({
       choices: [
         {
@@ -532,7 +533,7 @@ describe('aiProvider — explainValidator (happy path with board suggestion)', (
   });
 
   test('returns board_suggestion=null when the model output has no recipe line', async () => {
-    process.env.GROQ_API_KEY = 'test-key';
+    process.env.OPENROUTER_API_KEY = 'test-key';
     mockFetchOnce({
       choices: [{ message: { content: 'The teacher_abbr "ZX" is not defined.' } }],
     });

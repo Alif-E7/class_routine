@@ -18,12 +18,12 @@
  * layer only.
  *
  * Implementation strategy:
- *   1. If GROQ_API_KEY is unset, all helpers return
+ *   1. If OPENROUTER_API_KEY is unset, all helpers return
  *      { available: false, reason: 'no_api_key' } and no network
  *      call is made.
- *   2. If set, build a short prompt, POST to Groq's
+ *   2. If set, build a short prompt, POST to OpenRouter's
  *      OpenAI-compatible chat completions endpoint
- *      (`api.groq.com/openai/v1`), with a per-call AbortController
+ *      (`openrouter.ai/api/v1`), with a per-call AbortController
  *      timeout. If the call fails or times out, return
  *      { available: true, reason: 'call_failed'/'timeout', ... }
  *      so the route degrades gracefully.
@@ -34,16 +34,14 @@
  * NOTE: model name and endpoint are read from env so they can be
  * updated without code changes:
  *   OPENROUTER_API_KEY      — required to enable
- *   OPENROUTER_MODEL        — default 'qwen/qwen-2.5-72b-instruct:free'
+ *   OPENROUTER_MODEL        — default 'openrouter/free'
  *   OPENROUTER_BASE_URL     — default 'https://openrouter.ai/api/v1'
- *   OPENROUTER_TIMEOUT_MS   — per-call timeout, default 6000ms
+ *   OPENROUTER_TIMEOUT_MS   — per-call timeout, default 60000ms
  */
 
 const DEFAULT_MODEL = 'openrouter/free';
 const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
 const DEFAULT_TIMEOUT_MS = 60000;
-// Hard cap on rows included in a prompt — keep tokens bounded.
-// Hard cap on rows included in a prompt — keep tokens bounded.
 const MAX_SCHEDULE_ROWS = 400;
 
 function formatScheduleCompact(schedule) {
@@ -88,16 +86,6 @@ function buildFailurePrompt(schedulingErrorOrArg) {
     : schedulingErrorOrArg;
   const diagnostics = schedulingErrorOrArg && schedulingErrorOrArg.diagnostics;
 
-  // The solver splits unplaced courses into two buckets so the AI
-  // can target root causes (see services/scheduler.js):
-  //   - details.unplaceable    — courses backtrack actually tried
-  //                              and could not place.
-  //   - details.not_attempted  — courses the solver never reached
-  //                              because an earlier course failed
-  //                              first.
-  // We surface the not_attempted list so the model can mention it
-  // briefly (so the admin knows these are *not* root causes) instead
-  // of silently dropping them.
   const unplaceable = (schedulingError && schedulingError.details
     && Array.isArray(schedulingError.details.unplaceable))
     ? schedulingError.details.unplaceable
@@ -108,14 +96,24 @@ function buildFailurePrompt(schedulingErrorOrArg) {
     : [];
 
   const lines = [];
-  lines.push('You are helping a university admin debug a scheduling conflict. ');
-  lines.push('You are given exact capacity vs demand numbers per course type. ');
-  lines.push('Do NOT give generic advice like "add more rooms" -- instead, state ');
-  lines.push('the capacity vs demand using the numbers provided (e.g. "X sessions of ');
-  lines.push('type Y need Z slots and W are available"), ');
-  lines.push('and suggest which specific course_codes have suspiciously high or ');
-  lines.push('inconsistent credit/duration values compared to others of the same ');
-  lines.push('type, if any stand out.');
+  lines.push('You are helping a university admin debug a scheduling conflict.');
+  lines.push('CRITICAL REQUIREMENT - LANGUAGE, TERMINOLOGY & DAY MAPPINGS:');
+  lines.push('- You MUST write your entire response text in clear, fluent, professional, and unambiguous BANGLA (বাংলা).');
+  lines.push('- DAY MAPPINGS (MANDATORY):');
+  lines.push('  * SUN = রবিবার (Sunday)');
+  lines.push('  * MON = সোমবার (Monday)');
+  lines.push('  * TUE = মঙ্গলবার (Tuesday)');
+  lines.push('  * WED = বুধবার (Wednesday)');
+  lines.push('  * THU / THR = বৃহস্পতিবার (Thursday)');
+  lines.push('  * FRI = শুক্রবার (Friday)');
+  lines.push('  * SAT = শনিবার (Saturday)');
+  lines.push('- NEVER translate SUN as "সুন্দর", "সাবু", or phonetic nonsense!');
+  lines.push('- NEVER translate MON as "মন" or "মঙ্গলবার"!');
+  lines.push('- NEVER mix Hindi / Devanagari script (e.g. do NOT write "शेड्यूल"). Use proper Bengali ("রুটিন" or "সময়সূচি").');
+  lines.push('- Do NOT truncate thoughts; provide complete, well-formed sentences.');
+  lines.push('You are given exact capacity vs demand numbers per course type.');
+  lines.push('Do NOT give generic advice -- instead, state the capacity vs demand in BANGLA (বাংলা) using the numbers provided,');
+  lines.push('and suggest which specific course_codes have suspiciously high or inconsistent values in BANGLA (বাংলা).');
   lines.push('');
   lines.push('A CSP auto-scheduler reported the following infeasibility:');
   lines.push('');
@@ -144,10 +142,9 @@ function buildFailurePrompt(schedulingErrorOrArg) {
     lines.push(JSON.stringify(diagnostics, null, 2));
   }
   lines.push('');
-  lines.push('Write ONE short paragraph (max 4 sentences) suggesting concrete next');
-  lines.push('steps the admin can take (e.g. add a second lab room, reduce a');
-  lines.push("teacher's unavailability, lower a course's classes-per-week, etc.).");
-  lines.push('Plain text only. No markdown. No code blocks.');
+  lines.push('Write ONE short paragraph (max 4 sentences) in BANGLA (বাংলা) suggesting concrete next');
+  lines.push('steps the admin can take (e.g. add a second lab room, reduce a teacher\'s unavailability, lower a course\'s classes-per-week, etc.).');
+  lines.push('Plain text only. No markdown code blocks.');
   return lines.join('\n');
 }
 
@@ -162,6 +159,10 @@ function buildExplainPrompt({ schedule, config, prompt }) {
   lines.push('about an already-generated schedule. Read the schedule data below and');
   lines.push('answer their question in plain text (max 4 sentences). Do not propose');
   lines.push('edits and do not invent classes that are not in the schedule.');
+  lines.push('CRITICAL REQUIREMENT - LANGUAGE, TERMINOLOGY & DAY MAPPINGS:');
+  lines.push('- You MUST write your entire response in clear, fluent, professional BANGLA (বাংলা).');
+  lines.push('- DAY MAPPINGS: SUN = রবিবার, MON = সোমবার, TUE = মঙ্গলবার, WED = বুধবার, THU = বৃহস্পতিবার.');
+  lines.push('- NEVER translate SUN as "সুন্দর"/"সাবু" or MON as "মন". NEVER mix Hindi/Devanagari characters (like "शेड्यूल").');
   lines.push('');
   if (config) {
     lines.push('Configuration:');
@@ -169,6 +170,7 @@ function buildExplainPrompt({ schedule, config, prompt }) {
     lines.push('');
   }
   lines.push('Schedule (format: day,slot_start,slot_end,course_code,teacher_abbr,room_id,year_sem):');
+  lines.push(JSON.stringify(schedule));
   lines.push(formatScheduleCompact(schedule));
   if (Array.isArray(schedule) && schedule.length > MAX_SCHEDULE_ROWS) {
     lines.push('');
@@ -186,6 +188,20 @@ function buildExplainPrompt({ schedule, config, prompt }) {
 function buildEditPrompt({ schedule, prompt, score, history = [] }) {
   const lines = [];
   lines.push('You are an AI assistant helping a university timetable administrator with an already-generated schedule.');
+  lines.push('CRITICAL REQUIREMENT - LANGUAGE, TERMINOLOGY & DAY MAPPINGS:');
+  lines.push('- You MUST ALWAYS write your response text (the "summary", "question", and "concerns" fields) in clear, fluent, professional, and unambiguous BANGLA (বাংলা).');
+  lines.push('- DAY MAPPINGS (MANDATORY):');
+  lines.push('  * SUN = রবিবার (Sunday)');
+  lines.push('  * MON = সোমবার (Monday)');
+  lines.push('  * TUE = মঙ্গলবার (Tuesday)');
+  lines.push('  * WED = বুধবার (Wednesday)');
+  lines.push('  * THU / THR = বৃহস্পতিবার (Thursday)');
+  lines.push('  * FRI = শুক্রবার (Friday)');
+  lines.push('  * SAT = শনিবার (Saturday)');
+  lines.push('- NEVER translate SUN as "সুন্দর", "সাবু", or phonetic nonsense!');
+  lines.push('- NEVER translate MON as "মন" or "মঙ্গলবার"!');
+  lines.push('- NEVER mix Hindi / Devanagari script (e.g. do NOT write "शेड्यूल"). Use proper Bengali ("রুটিন" or "সময়সূচি").');
+  lines.push('- Use clean Markdown formatting inside "summary" (such as bold headings, bullet points, numbered steps, or concise paragraphs) to make your explanation structured, professional, and readable.');
   if (score !== null && score !== undefined) {
     lines.push(`The current routine has a quality score of ${score}/10.`);
   }
@@ -197,21 +213,19 @@ function buildEditPrompt({ schedule, prompt, score, history = [] }) {
   lines.push('REQUIRED JSON STRUCTURE:');
   lines.push('{');
   lines.push('  "kind": "proposed_change" | "clarifying_question" | "explanation",');
-  lines.push('  "summary": "Your plain-english explanation, question, or reasoning (required, will be shown in the chat)",');
+  lines.push('  "summary": "আপনার উত্তর বা ব্যাখ্যা বাংলায় লিখুন (Use structured Bangla markdown text with bolding and bullet points where helpful)",');
   lines.push('  "change": {  // only if kind is "proposed_change"');
   lines.push('    "course_code": "CSE406",');
   lines.push('    "from": { "day": "SUN", "slot_start": 540, "slot_end": 630 },');
   lines.push('    "to": { "day": "MON", "slot_start": 600, "slot_end": 690 }');
   lines.push('  },');
-  lines.push('  "question": "If kind=clarifying_question, put it here",');
-  lines.push('  "concerns": [ "Any warnings about capacity or conflict" ]');
+  lines.push('  "question": "যদি কোনো প্রশ্ন থাকে তবে তা বাংলায় লিখুন",');
+  lines.push('  "concerns": [ "যেকোনো সতর্কতা বা কনফ্লিক্ট বাংলায় লিখুন" ]');
   lines.push('}');
   lines.push('');
-  lines.push('    conflicts (teacher already busy, room already booked, etc.) — empty if none.');
-  lines.push('  - If the user asks about the routine\'s quality, score, pros or cons, set kind="explanation" and put your answer in "summary". Make it conversational and helpful.');
-  lines.push('  - If you cannot understand the request, set kind="clarifying_question" and ask.');
-  lines.push('  - NEVER propose a change that violates the schedule\'s constraints without');
-  lines.push('    flagging it in concerns.');
+  lines.push('  - If the user asks about the routine\'s quality, score, pros or cons, set kind="explanation" and put your answer in "summary" written in Bangla (বাংলা).');
+  lines.push('  - If you cannot understand the request, set kind="clarifying_question" and ask in Bangla (বাংলা).');
+  lines.push('  - NEVER propose a change that violates the schedule\'s constraints without flagging it in concerns (in Bangla).');
   lines.push('');
   if (score !== undefined && score !== null) {
     lines.push(`Routine Score: ${score}/10`);
@@ -225,13 +239,10 @@ function buildEditPrompt({ schedule, prompt, score, history = [] }) {
     lines.push(`(schedule has ${schedule.length} rows total; first ${MAX_SCHEDULE_ROWS} shown)`);
   }
   lines.push('');
-  // Return an array of messages instead of a single string
   const systemPrompt = lines.join('\n');
-  const messages = [
-    { role: 'system', content: systemPrompt }
-  ];
 
-  if (Array.isArray(history)) {
+  if (Array.isArray(history) && history.length > 0) {
+    const messages = [{ role: 'system', content: systemPrompt }];
     for (const msg of history) {
       if (msg && msg.role && msg.content) {
         messages.push({
@@ -240,11 +251,87 @@ function buildEditPrompt({ schedule, prompt, score, history = [] }) {
         });
       }
     }
+    messages.push({ role: 'user', content: String(prompt || '').trim() });
+    return messages;
   }
 
-  messages.push({ role: 'user', content: String(prompt || '').trim() });
+  return systemPrompt + '\nUser Request: ' + String(prompt || '').trim();
+}
 
-  return messages;
+function buildValidatorPrompt(issue) {
+  const lines = [];
+  lines.push('You are helping a university timetable administrator fix a single validation issue');
+  lines.push('that was flagged during .xlsx import. The rule, location, and the message the');
+  lines.push('validator already produced are given below. Your job is to explain in plain English');
+  lines.push('(a) what the rule actually checks, (b) the most likely cause of the failure, and');
+  lines.push('(c) the concrete fix in the workbook.');
+  lines.push('CRITICAL REQUIREMENT: You MUST write your explanation text in clear, fluent BANGLA (বাংলা). Regardless of whether the validator error message is in English, explain the issue and fix in clear BANGLA (বাংলা).');
+  lines.push('');
+  lines.push('Rules:');
+  lines.push('  - 2–4 short sentences. No headings. No bullet lists.');
+  lines.push('  - Do NOT invent data that was not provided.');
+  lines.push('  - If the issue is a "warning" (soft), mention that the upload still succeeded');
+  lines.push('    and the admin may safely ignore it if the data is intentional.');
+  lines.push('  - Reference the rule code (e.g. V1, V5) and the sheet/cell when relevant.');
+  lines.push('  - Append EXACTLY ONE trailing line in this form:');
+  lines.push('      Board suggestion: <one short, copy-pasteable recipe>');
+  lines.push('    The suggestion should be a concrete Excel/Sheets-level action');
+  lines.push('    (a formula, a find/replace expression, a value to type into a');
+  lines.push('    specific cell like "Courses!D12", or a 1-2 step checklist).');
+  lines.push('    Do NOT wrap the line in markdown. Do NOT use bullets inside it.');
+  lines.push('    Do NOT prefix it with a label other than "Board suggestion:".');
+  lines.push('');
+  lines.push(`Severity: ${issue.severity || 'error'}`);
+  lines.push(`Rule:     ${issue.code || issue.rule || '(unknown)'}`);
+  if (issue.sheet) lines.push(`Sheet:    ${issue.sheet}`);
+  if (issue.column) lines.push(`Column:   ${issue.column}`);
+  if (issue.row != null) lines.push(`Row:      ${issue.row}`);
+  if (issue.value != null && issue.value !== '') lines.push(`Value:    ${JSON.stringify(issue.value)}`);
+  lines.push(`Message:  ${issue.message || '(none)'}`);
+  return lines.join('\n');
+}
+
+function buildUploadIssuesPrompt(errors, warnings) {
+  const lines = [];
+  lines.push('You are a university timetable assistant helping an administrator fix problems');
+  lines.push('found in an uploaded Excel workbook for a class routine generator.');
+  lines.push('The workbook has 9 sheets: Teachers, Courses, Year_Sem, Rooms, Credit_Rules,');
+  lines.push('Room_Preference, Day_Preference, Teacher_Unavailability, Config.');
+  lines.push('');
+  lines.push('Working days are SUN, MON, TUE, WED, THU (Sunday–Thursday).');
+  lines.push('CRITICAL REQUIREMENT: You MUST write the "summary" text and all "fix" descriptions in clear, fluent BANGLA (বাংলা). Regardless of whether the error/warning messages are in English, provide all explanation and fix text in BANGLA (বাংলা).');
+  lines.push('');
+  lines.push('You will be given a JSON array of validation errors and warnings.');
+  lines.push('Reply with ONLY a single JSON object (no markdown, no commentary) shaped like:');
+  lines.push('{');
+  lines.push('  "summary": "<2-3 sentences in BANGLA summarising the main problems and overall fix strategy>",');
+  lines.push('  "actionable_hints": [');
+  lines.push('    {');
+  lines.push('      "rule": "<V1/V2/…>",');
+  lines.push('      "severity": "error" | "warning",');
+  lines.push('      "fix": "<one concrete sentence in BANGLA: what to open, what to change, exact value>",');
+  lines.push('      "excel_action": "<copy-pasteable Excel formula or step, e.g. =VLOOKUP(B2,Teachers!A:A,1,0)>"');
+  lines.push('    }');
+  lines.push('  ]');
+  lines.push('}');
+  lines.push('');
+  lines.push('Rules:');
+  lines.push('  - Group by rule code — one hint object per unique rule code, even if there');
+  lines.push('    are many rows with that code. Mention the count of affected rows.');
+  lines.push('  - Be specific: reference sheet names, column names, and exact expected values.');
+  lines.push('  - Do NOT invent data. Only use what is provided.');
+  lines.push('  - Fix errors first, then warnings.');
+  lines.push('  - Keep each "fix" under 60 words.');
+  lines.push('');
+
+  const allIssues = [
+    ...errors.map(e => ({ ...e, severity: 'error' })),
+    ...warnings.map(w => ({ ...w, severity: 'warning' })),
+  ];
+  const limited = allIssues.slice(0, 60);
+  lines.push(`Validation issues (${allIssues.length} total, showing ${limited.length}):`);
+  lines.push(JSON.stringify(limited, null, 2));
+  return lines.join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -328,15 +415,11 @@ function normalizeEditProposal(parsed) {
   if (!parsed || typeof parsed !== 'object') return null;
   let kind = String(parsed.kind || '').toLowerCase();
   if (!['proposed_change', 'clarifying_question', 'explanation'].includes(kind)) {
-    if (parsed.summary || parsed.change) {
-      kind = parsed.change ? 'proposed_change' : 'explanation';
-    } else {
-      return null;
-    }
+    return null;
   }
-  const summary = typeof parsed.summary === 'string' ? parsed.summary.slice(0, 3000) : '';
+  const summary = typeof parsed.summary === 'string' ? parsed.summary.slice(0, 1000) : '';
   const concerns = Array.isArray(parsed.concerns)
-    ? parsed.concerns.map((c) => String(c).slice(0, 200)).slice(0, 8)
+    ? parsed.concerns.map((c) => String(c).slice(0, 500)).slice(0, 10)
     : [];
   let change = null;
   if (kind === 'proposed_change' && parsed.change && typeof parsed.change === 'object') {
@@ -376,7 +459,7 @@ async function callProvider(promptOrMessages, opts = {}) {
   if (!isEnabled()) {
     return { available: false, reason: 'no_api_key', text: null, json: null };
   }
-  const apiKey = process.env.OPENROUTER_API_KEY.trim();
+  const apiKey = (process.env.OPENROUTER_API_KEY || '').trim();
   const baseModel = process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
   const baseURL = process.env.OPENROUTER_BASE_URL || DEFAULT_BASE_URL;
 
@@ -471,108 +554,6 @@ async function callProvider(promptOrMessages, opts = {}) {
     json: lastJson,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Prompt builder for explainValidator
-// ---------------------------------------------------------------------------
-
-/**
- * Build the prompt we send to the model for explainValidator. We pass
- * the *exact* rule code, sheet, row, column, and message that the
- * validator already produced — the model's job is only to translate
- * that into 2–3 sentences of plain-English remediation guidance, not
- * to invent facts about the data.
- *
- * In addition to the prose explanation, we ask the model to append a
- * structured "Board suggestion:" line — a one-shot, copy-pasteable
- * recipe an admin can apply directly in Excel/Google Sheets (a
- * formula, a find/replace expression, a value to type into a
- * specific cell, etc.). The model returns this in a stable trailing
- * line so explainValidator can split the explanation from the
- * suggestion without re-parsing JSON.
- */
-
-function buildValidatorPrompt(issue) {
-  const lines = [];
-  lines.push('You are helping a university timetable administrator fix a single validation issue');
-  lines.push('that was flagged during .xlsx import. The rule, location, and the message the');
-  lines.push('validator already produced are given below. Your job is to explain in plain English');
-  lines.push('(a) what the rule actually checks, (b) the most likely cause of the failure, and');
-  lines.push('(c) the concrete fix in the workbook.');
-  lines.push('');
-  lines.push('Rules:');
-  lines.push('  - 2–4 short sentences. No headings. No bullet lists.');
-  lines.push('  - Do NOT invent data that was not provided.');
-  lines.push('  - If the issue is a "warning" (soft), mention that the upload still succeeded');
-  lines.push('    and the admin may safely ignore it if the data is intentional.');
-  lines.push('  - Reference the rule code (e.g. V1, V5) and the sheet/cell when relevant.');
-  lines.push('  - Append EXACTLY ONE trailing line in this form:');
-  lines.push('      Board suggestion: <one short, copy-pasteable recipe>');
-  lines.push('    The suggestion should be a concrete Excel/Sheets-level action');
-  lines.push('    (a formula, a find/replace expression, a value to type into a');
-  lines.push('    specific cell like "Courses!D12", or a 1-2 step checklist).');
-  lines.push('    Do NOT wrap the line in markdown. Do NOT use bullets inside it.');
-  lines.push('    Do NOT prefix it with a label other than "Board suggestion:".');
-  lines.push('');
-  lines.push(`Severity: ${issue.severity || 'error'}`);
-  lines.push(`Rule:     ${issue.code || issue.rule || '(unknown)'}`);
-  if (issue.sheet) lines.push(`Sheet:    ${issue.sheet}`);
-  if (issue.column) lines.push(`Column:   ${issue.column}`);
-  if (issue.row != null) lines.push(`Row:      ${issue.row}`);
-  if (issue.value != null && issue.value !== '') lines.push(`Value:    ${JSON.stringify(issue.value)}`);
-  lines.push(`Message:  ${issue.message || '(none)'}`);
-  return lines.join('\n');
-}
-
-/**
- * Build the prompt for explainUploadIssues — a holistic analysis of ALL
- * validation errors and warnings from a single upload attempt.
- * The model is asked to return strict JSON so the route can surface
- * per-rule actionable hints in the UI without re-parsing prose.
- */
-function buildUploadIssuesPrompt(errors, warnings) {
-  const lines = [];
-  lines.push('You are a university timetable assistant helping an administrator fix problems');
-  lines.push('found in an uploaded Excel workbook for a class routine generator.');
-  lines.push('The workbook has 9 sheets: Teachers, Courses, Year_Sem, Rooms, Credit_Rules,');
-  lines.push('Room_Preference, Day_Preference, Teacher_Unavailability, Config.');
-  lines.push('');
-  lines.push('Working days are SUN, MON, TUE, WED, THU (Sunday–Thursday).');
-  lines.push('');
-  lines.push('You will be given a JSON array of validation errors and warnings.');
-  lines.push('Reply with ONLY a single JSON object (no markdown, no commentary) shaped like:');
-  lines.push('{');
-  lines.push('  "summary": "<2-3 sentences summarising the main problems and overall fix strategy>",');
-  lines.push('  "actionable_hints": [');
-  lines.push('    {');
-  lines.push('      "rule": "<V1/V2/…>",');
-  lines.push('      "severity": "error" | "warning",');
-  lines.push('      "fix": "<one concrete sentence: what to open, what to change, exact value>",');
-  lines.push('      "excel_action": "<copy-pasteable Excel formula or step, e.g. =VLOOKUP(B2,Teachers!A:A,1,0)>"');
-  lines.push('    }');
-  lines.push('  ]');
-  lines.push('}');
-  lines.push('');
-  lines.push('Rules:');
-  lines.push('  - Group by rule code — one hint object per unique rule code, even if there');
-  lines.push('    are many rows with that code. Mention the count of affected rows.');
-  lines.push('  - Be specific: reference sheet names, column names, and exact expected values.');
-  lines.push('  - Do NOT invent data. Only use what is provided.');
-  lines.push('  - Fix errors first, then warnings.');
-  lines.push('  - Keep each "fix" under 60 words.');
-  lines.push('');
-
-  const allIssues = [
-    ...errors.map(e => ({ ...e, severity: 'error' })),
-    ...warnings.map(w => ({ ...w, severity: 'warning' })),
-  ];
-  // Limit to 60 issues to stay within token budget.
-  const limited = allIssues.slice(0, 60);
-  lines.push(`Validation issues (${allIssues.length} total, showing ${limited.length}):`);
-  lines.push(JSON.stringify(limited, null, 2));
-  return lines.join('\n');
-}
-
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -704,7 +685,7 @@ async function explainValidator(issue) {
 
 /**
  * Analyse ALL validation errors and warnings from a single upload attempt
- * using Groq and return structured, per-rule actionable hints.
+ * using OpenRouter and return structured, per-rule actionable hints.
  *
  * @param {Array} errors   — hard validation failures from validators.validate()
  * @param {Array} warnings — soft warnings from validators.validate()

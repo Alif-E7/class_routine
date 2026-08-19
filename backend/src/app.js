@@ -2,6 +2,7 @@
 
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 
 const healthRoutes = require('./routes/health');
 const uploadRoutes = require('./routes/upload');
@@ -10,6 +11,7 @@ const batchesRoutes = require('./routes/batches');
 const exportRoutes = require('./routes/export');
 const editRoutes = require('./routes/edit');
 const authRoutes = require('./routes/auth');
+const classRoutinesRoutes = require('./routes/classRoutines');
 
 function createApp() {
   const app = express();
@@ -26,6 +28,7 @@ function createApp() {
     next();
   });
 
+  app.use('/api/contents', express.static(path.join(__dirname, '../contents')));
   app.use('/api/health', healthRoutes);
   app.use('/api/upload', uploadRoutes);
   // batches routes must mount BEFORE schedule routes since both use /:id,
@@ -36,6 +39,7 @@ function createApp() {
   app.use('/api/batches', exportRoutes);
   app.use('/api/batches', editRoutes);
   app.use('/api/auth', authRoutes);
+  app.use('/api/class-routines', classRoutinesRoutes);
 
   // Multer errors (e.g. file-too-big, wrong field name) throw inside the
   // upload route. Map them to clean 4xx instead of letting them fall to the

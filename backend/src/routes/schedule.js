@@ -1,59 +1,5 @@
 'use strict';
 
-/**
- * schedule.js — POST /api/batches/:id/generate
- *
- * Per build prompt §3.4:
- *   1. Load all data for the given batch from MySQL.
- *   2. Run scheduler.solve.
- *   3. On success: bulk-insert into `schedules` inside one transaction.
- *      The three UNIQUE KEYs on `schedules` are a second line of defense —
- *      if a race condition or solver bug ever produces a collision, the
- *      INSERT fails loudly instead of silently corrupting data.
- *   4. On failure (infeasible): do NOT insert anything. Return a
- *      structured error describing which course(s) couldn't be placed
- *      and why. Optionally call `aiProvider.js` to enrich the message
- *      with a friendly admin hint (advisory text only — never alters DB).
- *
- * Response shapes:
- *   Success (200):
- *     {
- *       success: true,
- *       code: 'SCHEDULE_OK',
- *       batch_id: <int>,
- *       assignments_count: <int>,
- *       assignments: [
- *         { course_code, teacher_abbr, room_id, day,
- *           slot_start, slot_end, year_sem, session_index }, ...
- *       ],
- *     }
- *
- *   Failure (422):
- *     {
- *       success: false,
- *       code: 'SCHEDULE_INFEASIBLE',
- *       message: <human readable>,
- *       unplaceable: [<course_code>, ...],   // actually-attempted, but failed
- *       not_attempted: [<course_code>, ...], // never reached (empty if
- *                                            //   every course was tried)
- *       details: {...},
- *       diagnostics: {
- *         unplaceable_courses: [...],
- *         capacity_by_type:    [...],  // per (type, duration) capacity vs demand
- *         teacher_load:        [...],  // only for unplaceable-course teachers
- *       },
- *       friendly_hint: <string|null>,   // optional, only if aiProvider ran
- *     }
- *
- *   Missing batch (404):
- *     { success: false, code: 'BATCH_NOT_FOUND', message: '...' }
- *
- *   Batch not ready (409):
- *     { success: false, code: 'BATCH_NOT_READY', message: '...',
- *       status: 'processing' | 'failed' | 'needs_review' }
- *
- *   Bad input (400): id not an integer, etc.
- */
 
 const express = require('express');
 const router = express.Router({ mergeParams: true });
@@ -139,11 +85,11 @@ router.post('/:id/generate', async (req, res, next) => {
     try {
       assignments = solve(
         {
-          config:                 loaded.config,
-          courses:                loaded.courses,
-          rooms:                  loaded.rooms,
-          room_preference:        loaded.room_preference,
-          day_preference:         loaded.day_preference || [],   // NEW — soft day bias
+          config: loaded.config,
+          courses: loaded.courses,
+          rooms: loaded.rooms,
+          room_preference: loaded.room_preference,
+          day_preference: loaded.day_preference || [],   // NEW — soft day bias
           teacher_unavailability: loaded.teacher_unavailability,
         },
         {
@@ -223,20 +169,12 @@ router.post('/:id/generate', async (req, res, next) => {
         a.teacher_abbr,
         a.room_id,
         a.day,
-        // `schedules.slot_start` / `slot_end` are MySQL TIME columns.
-        // MySQL rejects raw integer minutes (≥ 838) with
-        // "Incorrect time value: '890'". Convert to zero-padded
-        // "HH:MM" strings at the SQL boundary; the in-memory
-        // `assignments` array still carries integer minutes so the
-        // API response contract is unchanged.
         formatTime(a.slot_start),
         formatTime(a.slot_end),
         a.year_sem,
         a.session_index,
       ]);
 
-      // mysql2 accepts a single multi-row INSERT — far cheaper than
-      // one INSERT per assignment (28 calls vs 1).
       await conn.query(
         `INSERT INTO schedules
            (batch_id, course_code, teacher_abbr, room_id,
@@ -248,7 +186,7 @@ router.post('/:id/generate', async (req, res, next) => {
       // Stamp the batch as having a generated routine (status is
       // already 'completed' from the upload step; we leave it alone
       // so failed/partial runs don't overwrite the upload status).
-      
+
       const score = calculateScore(assignments, loaded);
 
       return { assignments_count: rows.length, score };
@@ -309,12 +247,10 @@ router.get('/:id/schedule', async (req, res, next) => {
       });
     }
     const [rows] = await getPool().query(
-      `SELECT s.course_code, s.teacher_abbr, s.room_id, s.day,
-              s.slot_start, s.slot_end, s.year_sem, s.session_index,
-              c.course_name
+      `SELECT s.course_code, c.course_name, s.teacher_abbr, s.room_id, s.day,
+              s.slot_start, s.slot_end, s.year_sem, s.session_index
        FROM schedules s
-       LEFT JOIN courses c
-         ON c.course_code = s.course_code AND c.upload_batch_id = s.batch_id
+       LEFT JOIN courses c ON s.course_code = c.course_code AND c.upload_batch_id = s.batch_id
        WHERE s.batch_id = ?
        ORDER BY s.year_sem, s.day, s.slot_start, s.course_code`,
       [batchId]
@@ -342,7 +278,7 @@ router.get('/:id/schedule', async (req, res, next) => {
       slot_start: normalizeSlotValue(r.slot_start),
       slot_end: normalizeSlotValue(r.slot_end),
     }));
-    
+
     let score = null;
     try {
       const loaded = await loadBatchForSchedule(batchId);
@@ -381,6 +317,71 @@ router.get('/:id/schedule', async (req, res, next) => {
       config,
       year_sem_list,
       day_list,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/batches/:id/schedule — persist manual drag-and-drop schedule updates
+router.put('/:id/schedule', async (req, res, next) => {
+  const batchId = Number.parseInt(req.params.id, 10);
+  if (!Number.isInteger(batchId) || batchId <= 0) {
+    return res.status(400).json({
+      success: false,
+      code: 'INVALID_BATCH_ID',
+      message: 'batch id must be a positive integer',
+    });
+  }
+
+  const assignments = req.body && Array.isArray(req.body.assignments) ? req.body.assignments : null;
+  if (!assignments) {
+    return res.status(400).json({
+      success: false,
+      message: 'assignments array is required',
+    });
+  }
+
+  try {
+    const [batchRows] = await getPool().query(
+      'SELECT id FROM upload_batches WHERE id = ?',
+      [batchId]
+    );
+    if (batchRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        code: 'BATCH_NOT_FOUND',
+        message: `No upload batch with id ${batchId}`,
+      });
+    }
+
+    await withTransaction(async (conn) => {
+      await conn.query('DELETE FROM schedules WHERE batch_id = ?', [batchId]);
+      if (assignments.length > 0) {
+        const rows = assignments.map((a, idx) => [
+          batchId,
+          a.course_code,
+          a.teacher_abbr,
+          a.room_id,
+          a.day,
+          formatTime(a.slot_start),
+          formatTime(a.slot_end),
+          a.year_sem,
+          a.session_index ?? idx + 1,
+        ]);
+        await conn.query(
+          `INSERT INTO schedules
+             (batch_id, course_code, teacher_abbr, room_id, day, slot_start, slot_end, year_sem, session_index)
+           VALUES ?`,
+          [rows]
+        );
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Schedule updated successfully',
+      assignments_count: assignments.length,
     });
   } catch (err) {
     next(err);

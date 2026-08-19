@@ -110,8 +110,20 @@ describe('validators — broken workbook fires every rule', () => {
     expect(e.value).toBe('NOPE');
   });
 
+  test('V15 — unknown faculty in Config', () => {
+    const e = report.errors.find(x => x.code === 'V15');
+    expect(e).toBeDefined();
+    expect(e.value).toBe('Invalid Faculty Name');
+  });
+
+  test('V16 — invalid year in Config', () => {
+    const e = report.errors.find(x => x.code === 'V16');
+    expect(e).toBeDefined();
+    expect(e.value).toBe('NOT_A_YEAR');
+  });
+
   test('all rules collected, not just first', () => {
-    // Expect all known error codes including new V11, V12, V14.
+    // Expect all known error codes including V11, V12, V14, V15, V16.
     const codes = new Set(report.errors.map(e => e.code));
     expect(codes.has('V1')).toBe(true);
     expect(codes.has('V2')).toBe(true);
@@ -124,6 +136,8 @@ describe('validators — broken workbook fires every rule', () => {
     expect(codes.has('V11')).toBe(true);
     expect(codes.has('V12')).toBe(true);
     expect(codes.has('V14')).toBe(true);
+    expect(codes.has('V15')).toBe(true);
+    expect(codes.has('V16')).toBe(true);
   });
 });
 

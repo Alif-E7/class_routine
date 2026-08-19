@@ -273,7 +273,7 @@ describe('POST /api/batches/:id/explain-error — batch not found', () => {
 describe('POST /api/batches/:id/explain-error — AI provider outcomes', () => {
   beforeEach(() => { poolMock._reset(); });
 
-  test('503 AI_UNAVAILABLE when no GROQ_API_KEY is configured', async () => {
+  test('503 AI_UNAVAILABLE when no OPENROUTER_API_KEY is configured', async () => {
     const app = buildAppWithProvider(noKeyProvider);
     const res = await request(app).post('/api/batches/1/explain-error').send({
       issue: { message: 'x', severity: 'error' },
@@ -331,7 +331,7 @@ describe('POST /api/batches/:id/explain-error — AI provider outcomes', () => {
   });
 
   // ---- Permission / key-rejection branch ----
-  // When Groq rejects the key (HTTP 401/403/404), the route must surface a
+  // When OpenRouter rejects the key (HTTP 401/403/404), the route must surface a
   // 503 with reason='permission_denied' rather than a generic 502. This is
   // the user-visible fix for "AI could not explain that issue. Try again".
 
@@ -352,8 +352,8 @@ describe('POST /api/batches/:id/explain-error — AI provider outcomes', () => {
     expect(res.body.code).toBe('AI_UNAVAILABLE');
     expect(res.body.reason).toBe('permission_denied');
     expect(res.body.upstream_reason).toBe('http_403');
-    expect(res.body.message).toMatch(/GROQ_API_KEY/i);
-    expect(res.body.message).toMatch(/Groq/i);
+    expect(res.body.message).toMatch(/OPENROUTER_API_KEY/i);
+    expect(res.body.message).toMatch(/OpenRouter/i);
   });
 
   test('503 permission_denied when provider returns reason=http_404', async () => {
