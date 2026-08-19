@@ -15,28 +15,28 @@ const path = require('path');
 const mysql = require('mysql2/promise');
 
 async function main() {
-  const dbName = process.env.DB_NAME || 'routine_generator';
-  // The migration runner needs privileges that the app's runtime user
-  // (DB_USER, typically `routine_app`) may not have — specifically
-  // `CREATE DATABASE` on first run. Override via DB_MIGRATE_USER /
-  // DB_MIGRATE_PASSWORD; falls back to DB_USER/DB_PASSWORD so the
-  // common case (developer runs migrations as the same user they set up
-  // the schema with) keeps working.
-  const user = process.env.DB_MIGRATE_USER || process.env.DB_USER || 'root';
-  const password = process.env.DB_MIGRATE_PASSWORD || process.env.DB_PASSWORD || '';
+  const dbName = process.env.DB_NAME || process.env.MYSQLDATABASE || 'routine_generator';
+
+  const user =
+    process.env.DB_MIGRATE_USER ||
+    process.env.DB_USER ||
+    process.env.MYSQLUSER ||
+    'root';
+
+  const password =
+    process.env.DB_MIGRATE_PASSWORD ||
+    process.env.DB_PASSWORD ||
+    process.env.MYSQLPASSWORD ||
+    '';
+
   const conn = await mysql.createConnection({
-    host: process.env.DB_HOST || 'localhost',
-    port: Number(process.env.DB_PORT) || 3306,
+    host: process.env.DB_HOST || process.env.MYSQLHOST || 'localhost',
+    port: Number(process.env.DB_PORT || process.env.MYSQLPORT) || 3306,
     user,
     password,
+    database: dbName,
     multipleStatements: true,
   });
-
-  // Create DB if missing (use a separate connection without a database).
-  await conn.query(
-    `CREATE DATABASE IF NOT EXISTS \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-  );
-  await conn.query(`USE \`${dbName}\``);
 
   await conn.query(`
     CREATE TABLE IF NOT EXISTS _migrations (
