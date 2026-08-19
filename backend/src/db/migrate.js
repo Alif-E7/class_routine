@@ -15,32 +15,33 @@ const path = require('path');
 const mysql = require('mysql2/promise');
 
 async function main() {
-  const dbName = process.env.DB_NAME || process.env.MYSQLDATABASE || 'routine_generator';
-
-  const user =
-    process.env.DB_MIGRATE_USER ||
-    process.env.DB_USER ||
-    process.env.MYSQLUSER ||
-    'root';
-
-  const password =
-    process.env.DB_MIGRATE_PASSWORD ||
-    process.env.DB_PASSWORD ||
-    process.env.MYSQLPASSWORD ||
-    '';
-
+  let targetDb = process.env.DB_NAME || process.env.MYSQLDATABASE || 'routine_generator';
   const dbUrl = process.env.MYSQL_URL || process.env.DATABASE_URL || process.env.MYSQL_PRIVATE_URL;
 
-  const conn = dbUrl
-    ? await mysql.createConnection({ uri: dbUrl, multipleStatements: true })
-    : await mysql.createConnection({
-        host: process.env.DB_HOST || process.env.MYSQLHOST || 'localhost',
-        port: Number(process.env.DB_PORT || process.env.MYSQLPORT) || 3306,
-        user,
-        password,
-        database: dbName,
-        multipleStatements: true,
-      });
+  let conn;
+  if (dbUrl) {
+    try {
+      const parsed = new URL(dbUrl);
+      const extractedDb = parsed.pathname.replace(/^\//, '');
+      if (extractedDb) targetDb = extractedDb;
+      // Connect without db first to ensure it exists
+      parsed.pathname = '';
+      conn = await mysql.createConnection({ uri: parsed.toString(), multipleStatements: true });
+    } catch (_) {
+      conn = await mysql.createConnection({ uri: dbUrl, multipleStatements: true });
+    }
+  } else {
+    conn = await mysql.createConnection({
+      host: process.env.DB_HOST || process.env.MYSQLHOST || 'localhost',
+      port: Number(process.env.DB_PORT || process.env.MYSQLPORT) || 3306,
+      user,
+      password,
+      multipleStatements: true,
+    });
+  }
+
+  await conn.query(`CREATE DATABASE IF NOT EXISTS \`${targetDb}\``);
+  await conn.query(`USE \`${targetDb}\``);
 
   await conn.query(`
     CREATE TABLE IF NOT EXISTS _migrations (

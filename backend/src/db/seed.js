@@ -33,17 +33,31 @@ async function main() {
     .update(password)
     .digest('hex');
 
+  let targetDb = process.env.DB_NAME || process.env.MYSQLDATABASE || 'routine_generator';
   const dbUrl = process.env.MYSQL_URL || process.env.DATABASE_URL || process.env.MYSQL_PRIVATE_URL;
 
-  const conn = dbUrl
-    ? await mysql.createConnection(dbUrl)
-    : await mysql.createConnection({
-        host:     process.env.DB_HOST     || process.env.MYSQLHOST || 'localhost',
-        port:     Number(process.env.DB_PORT || process.env.MYSQLPORT) || 3306,
-        user:     process.env.DB_MIGRATE_USER || process.env.DB_USER || process.env.MYSQLUSER || 'root',
-        password: process.env.DB_MIGRATE_PASSWORD || process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || '',
-        database: process.env.DB_NAME     || process.env.MYSQLDATABASE || 'routine_generator',
-      });
+  let conn;
+  if (dbUrl) {
+    try {
+      const parsed = new URL(dbUrl);
+      const extractedDb = parsed.pathname.replace(/^\//, '');
+      if (extractedDb) targetDb = extractedDb;
+      parsed.pathname = '';
+      conn = await mysql.createConnection(parsed.toString());
+    } catch (_) {
+      conn = await mysql.createConnection(dbUrl);
+    }
+  } else {
+    conn = await mysql.createConnection({
+      host:     process.env.DB_HOST     || process.env.MYSQLHOST || 'localhost',
+      port:     Number(process.env.DB_PORT || process.env.MYSQLPORT) || 3306,
+      user:     process.env.DB_MIGRATE_USER || process.env.DB_USER || process.env.MYSQLUSER || 'root',
+      password: process.env.DB_MIGRATE_PASSWORD || process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || '',
+    });
+  }
+
+  await conn.query(`CREATE DATABASE IF NOT EXISTS \`${targetDb}\``);
+  await conn.query(`USE \`${targetDb}\``);
 
   try {
     // Ensure users table exists (migration may not have run yet)
