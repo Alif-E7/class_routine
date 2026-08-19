@@ -336,9 +336,11 @@ const RoutinePage = () => {
               </span>
               <StatusBadge status={batch?.status} hasSchedule={hasSchedule} />
             </div>
-            <h1 className="text-lg sm:text-xl font-bold truncate">{batch?.filename || 'Routine'}</h1>
+            <h1 className="text-lg sm:text-xl font-bold truncate">
+              {batch?.department ? `${batch.department} Routine` : (batch?.filename || 'Routine')}
+            </h1>
             <p className="text-sky-300 text-xs sm:text-sm truncate">
-              {batch?.semester || 'No semester label'} · Imported{' '}
+              {batch?.semester || 'Academic Routine'} · Imported{' '}
               {batch?.created_at
                 ? new Date(batch.created_at).toLocaleString()
                 : '—'}

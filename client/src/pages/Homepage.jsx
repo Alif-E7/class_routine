@@ -464,20 +464,20 @@ const Homepage = () => {
                   <div className="flex-1 h-px bg-slate-100 hidden sm:block" />
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3">
                   {depts.map(item => (
                     <div
                       key={item.id}
                       id={`dept-${item.id}`}
                       onClick={() => handleDeptClick(item)}
-                      className="group relative text-left rounded-xl border-2 border-slate-200 bg-white hover:border-sky-400 hover:shadow-lg hover:-translate-y-0.5 overflow-hidden transition-all duration-200 cursor-pointer shadow-sm"
+                      className="group relative text-left rounded-xl border border-slate-200/90 bg-white hover:border-sky-400 hover:shadow-md hover:-translate-y-0.5 overflow-hidden transition-all duration-200 cursor-pointer shadow-xs flex flex-col justify-between"
                     >
                       <div className={`h-1 w-full bg-gradient-to-r ${fc.gradient}`} />
 
-                      <div className="p-4 space-y-2.5">
-                        <div className="flex items-start justify-between gap-1">
-                          <div className="w-8 h-8 rounded-lg bg-slate-100 group-hover:bg-sky-100 text-slate-500 group-hover:text-sky-600 flex items-center justify-center transition-all">
-                            <Icon className="w-4 h-4" />
+                      <div className="p-3 sm:p-3.5 space-y-2">
+                        <div className="flex items-center justify-between gap-1">
+                          <div className="w-7 h-7 rounded-lg bg-slate-100 group-hover:bg-sky-50 text-slate-500 group-hover:text-sky-600 flex items-center justify-center transition-colors">
+                            <Icon className="w-3.5 h-3.5" />
                           </div>
                           {user && (
                             <button
@@ -492,19 +492,17 @@ const Homepage = () => {
                         </div>
 
                         <div>
-                          <h3 className="text-lg font-extrabold leading-tight tracking-tight text-slate-800 group-hover:text-sky-600 transition-colors">
+                          <h3 className="text-base sm:text-lg font-bold leading-tight tracking-tight text-slate-800 group-hover:text-sky-600 transition-colors truncate">
                             {item.department}
                           </h3>
                         </div>
 
                         <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                          <div className="flex items-center gap-1">
-                            <Calendar className="w-3 h-3 text-slate-400" />
-                            <span className="text-[10px] font-semibold text-slate-500">{item.year}</span>
-                            <span className="text-[10px] text-slate-300 mx-0.5">·</span>
-                            <span className="text-[10px] font-semibold text-slate-500">{item.term}</span>
+                          <div className="flex items-center gap-1 min-w-0">
+                            <Calendar className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span className="text-[10px] font-semibold text-slate-500 truncate">{item.year} · {item.term}</span>
                           </div>
-                          <ArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:translate-x-1 group-hover:text-sky-500 transition-all" />
+                          <ArrowRight className="w-3 h-3 text-slate-300 group-hover:translate-x-0.5 group-hover:text-sky-500 transition-all shrink-0" />
                         </div>
                       </div>
                     </div>
