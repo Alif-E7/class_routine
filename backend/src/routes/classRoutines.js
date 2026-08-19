@@ -6,6 +6,7 @@ const { getPool } = require('../db/pool');
 const { loadBatchForSchedule } = require('../services/routineLoader');
 const { calculateScore, normalizeSlotValue } = require('../services/scheduler');
 const { touchBatch } = require('../services/batchCleanup');
+const { resolveDepartmentName } = require('../services/validators');
 
 // Faculty options list (both full names from new template Lists and shorthand for backward compatibility)
 const FACULTIES = [
@@ -124,7 +125,7 @@ router.post('/', async (req, res, next) => {
       });
     }
 
-    const deptClean = department.trim();
+    const deptClean = resolveDepartmentName(department);
     const yearClean = year.trim();
 
     // Check for previous class_routines entry with matching department, faculty, year, term, and semester

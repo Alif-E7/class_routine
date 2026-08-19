@@ -300,13 +300,13 @@ describe('excelParser — stop at first blank row', () => {
       // Teachers with asterisks and trailing status column
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
         ['full_name *', 'abbreviation *', 'designation *', 'department *', 'status'],
-        ['Dr. Ayesha Rahman', 'AYR', 'Professor', 'Computer Science and Engineering (CSE)', 'OK'],
+        ['Dr. Ayesha Rahman', 'AYR', 'Professor', 'CSE', 'OK'],
       ]), 'Teachers');
 
       // Courses with asterisks and trailing status
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
         ['course_code *', 'course_name *', 'credit *', 'dept *', 'year_sem *', 'teacher_abbr *', 'status'],
-        ['CSE101', 'Intro to CS', '3', 'Computer Science and Engineering (CSE)', '1-1', 'AYR', 'OK'],
+        ['CSE101', 'Intro to CS', '3', 'CSE', '1-1', 'AYR', 'OK'],
       ]), 'Courses');
 
       // Year_Sem with helpers and status
@@ -350,7 +350,7 @@ describe('excelParser — stop at first blank row', () => {
         ['key', 'value', 'status'],
         ['university', 'Gopalganj Science and Technology University', 'OK'],
         ['faculty', 'Engineering Faculty', null],
-        ['department', 'Computer Science and Engineering (CSE)', null],
+        ['department', 'CSE', null],
         ['year', 2026, null],
         ['semester', 'Fall', null],
         ['working_days', 'SUN,MON,TUE,WED,THU', null],
@@ -361,21 +361,21 @@ describe('excelParser — stop at first blank row', () => {
       // Lists sheet with row 1 headers
       XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
         ['Config_Year', 'Config_Semester', 'Faculty', 'Department_Full', 'dep_Engineering_Faculty'],
-        [2026, 'Fall', 'Engineering Faculty', 'Computer Science and Engineering (CSE)', 'Computer Science and Engineering (CSE)'],
+        [2026, 'Fall', 'Engineering Faculty', 'CSE', 'CSE'],
       ]), 'Lists');
 
       const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
       const result = parseWorkbook(buf, 'v2_sample.xlsx');
 
       expect(result.teachers).toHaveLength(1);
-      expect(result.teachers[0].department).toBe('Computer Science and Engineering (CSE)');
+      expect(result.teachers[0].department).toBe('CSE');
       expect(result.teachers[0].status).toBeUndefined();
 
       expect(result.courses).toHaveLength(1);
-      expect(result.courses[0].dept).toBe('Computer Science and Engineering (CSE)');
+      expect(result.courses[0].dept).toBe('CSE');
 
       expect(result.config.faculty).toBe('Engineering Faculty');
-      expect(result.config.department).toBe('Computer Science and Engineering (CSE)');
+      expect(result.config.department).toBe('CSE');
       expect(result.config.year).toBe('2026');
       expect(result.config.semester).toBe('Fall');
 
@@ -392,7 +392,7 @@ describe('excelParser — stop at first blank row', () => {
       // Lists parsed
       expect(result.lists).toBeDefined();
       expect(result.lists.faculties).toContain('Engineering Faculty');
-      expect(result.lists.departments).toContain('Computer Science and Engineering (CSE)');
+      expect(result.lists.departments).toContain('CSE');
     });
 
     test('round-trips the actual backend/contents routine template file', () => {

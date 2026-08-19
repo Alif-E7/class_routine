@@ -67,35 +67,56 @@ Object.entries(FACULTY_DEPARTMENTS).forEach(([fac, depts]) => {
 
 const DEPARTMENTS = Object.values(FACULTY_DEPARTMENTS).flat();
 
-const ABBR_MAP = {
-  CSE: 'Computer Science and Engineering',
-  EEE: 'Electrical and Electronic Engineering',
-  ETE: 'Electronics and Telecommunication Engineering',
-  ACCE: 'Applied Chemistry and Chemical Engineering',
-  CE: 'Civil Engineering',
-  FAPE: 'Food and Agroprocess Engineering',
-  ESDM: 'Environmental Science and Disaster Management',
-  BGE: 'Biotechnology and Genetic Engineering',
-  BMB: 'Biochemistry and Molecular Biology',
-  AIS: 'Accounting and Information Systems',
-  THM: 'Tourism and Hospitality Management',
-  FMB: 'Fisheries and Marine Bioscience',
-  ASVM: 'Animal Science and Veterinary Medicine',
-};
-
 function resolveDepartment(def) {
   if (!def || typeof def !== 'string') return DEPARTMENTS[0];
   const cleaned = def.trim();
   if (!cleaned) return DEPARTMENTS[0];
 
-  const upper = cleaned.toUpperCase();
-  if (ABBR_MAP[upper]) return ABBR_MAP[upper];
+  const lower = cleaned.toLowerCase();
+  const canonical = DEPARTMENTS.find((d) => {
+    const dLower = d.toLowerCase();
+    if (dLower === lower) return true;
+    if (lower === 'cse' || lower.includes('computer science')) return d === 'CSE';
+    if (lower === 'eee' || lower.includes('electrical and electronic')) return d === 'EEE';
+    if (lower === 'ete' || lower.includes('electronics and telecommunication')) return d === 'ETE';
+    if (lower === 'acce' || lower.includes('applied chemistry')) return d === 'ACCE';
+    if (lower === 'ce' || lower.includes('civil engineering')) return d === 'CE';
+    if (lower === 'fe' || lower === 'fape' || lower.includes('food')) return d === 'Food and Agroprocess Engineering';
+    if (lower === 'arch' || lower.includes('architecture')) return d === 'ARCH';
+    if (lower.includes('math')) return d === 'Mathematics';
+    if (lower.includes('stat')) return d === 'Statistics';
+    if (lower.includes('chem') && !lower.includes('applied')) return d === 'Chemistry';
+    if (lower.includes('phy')) return d === 'Physics';
+    if (lower === 'esdm' || lower.includes('environmental')) return d === 'ESDM';
+    if (lower.includes('pharm')) return d === 'Pharmacy';
+    if (lower === 'bge' || lower.includes('biotechnology')) return d === 'BGE';
+    if (lower === 'bmb' || lower.includes('biochemistry')) return d === 'BMB';
+    if (lower.includes('botany') || lower === 'bot') return d === 'Botany';
+    if (lower.includes('english') || lower === 'eng') return d === 'English';
+    if (lower.includes('bangla') || lower.includes('bengali') || lower === 'ban') return d === 'Bangla';
+    if (lower.includes('history') || lower === 'his') return d === 'History';
+    if (lower.includes('psychology') || lower === 'psy') return d === 'Psychology';
+    if (lower.includes('sociology') || lower === 'soc') return d === 'Sociology';
+    if (lower === 'pad' || lower.includes('public administration')) return d === 'PAD';
+    if (lower === 'ir' || lower.includes('international relations')) return d === 'IR';
+    if (lower.includes('econ') || lower === 'eco') return d === 'Economics';
+    if (lower === 'ps' || lower.includes('political science')) return d === 'PS';
+    if (lower.includes('management') || lower === 'mgt') return d === 'Management Studies';
+    if (lower === 'ais' || lower.includes('accounting')) return d === 'AIS';
+    if (lower.includes('marketing') || lower === 'mkt') return d === 'Marketing';
+    if (lower.includes('finance') || lower === 'fb') return d === 'Finance and Banking';
+    if (lower === 'thm' || lower.includes('tourism')) return d === 'THM';
+    if (lower.includes('law') || lower === 'llb') return d === 'Law';
+    if (lower === 'asvm' || lower.includes('animal science')) return d === 'ASVM';
+    if (lower.includes('agri')) return d === 'Agriculture';
+    if (lower === 'fmb' || lower.includes('fisheries')) return d === 'FMB';
+    return false;
+  });
 
-  const exact = DEPARTMENTS.find((d) => d.toLowerCase() === cleaned.toLowerCase());
-  if (exact) return exact;
+  if (canonical) return canonical;
 
   const partial = DEPARTMENTS.find(
-    (d) => d.toLowerCase().includes(cleaned.toLowerCase()) || cleaned.toLowerCase().includes(d.toLowerCase())
+    (d) => d.toLowerCase().includes(lower) || lower.includes(d.toLowerCase())
   );
   if (partial) return partial;
 

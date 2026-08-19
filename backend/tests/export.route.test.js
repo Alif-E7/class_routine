@@ -63,7 +63,7 @@ jest.mock('../src/db/pool', () => {
         if (/FROM\s+config\b/i.test(s)) {
           return [[
             { key: 'university',   value: 'Test University' },
-            { key: 'department',   value: 'Computer Science' },
+            { key: 'department',   value: 'CSE' },
             { key: 'semester',     value: '2026 July-December' },
             { key: 'working_days', value: 'SUN,MON,TUE,WED,THU' },
             { key: 'class_start',  value: '09:00' },

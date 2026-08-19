@@ -90,7 +90,7 @@ function buildBrokenWorkbook() {
       // V16 — invalid year
       university:    'Gopalganj Science and Technology University',
       faculty:       'Invalid Faculty Name',
-      department:    'Computer Science and Engineering (CSE)',
+      department:    'CSE',
       year:          'NOT_A_YEAR',
       semester:      'Fall',
       working_days:  'SUN,MON,TUE,WED,THU',
@@ -110,8 +110,8 @@ function buildCleanWorkbook() {
   return {
     filename: 'clean-sample.xlsx',
     teachers: [
-      { full_name: 'Dr. Ayesha Rahman',  abbreviation: 'AYR', designation: 'Associate Professor', department: 'Computer Science and Engineering (CSE)' },
-      { full_name: 'Dr. Bikash Chandra', abbreviation: 'BIC', designation: 'Assistant Professor', department: 'Computer Science and Engineering (CSE)' },
+      { full_name: 'Dr. Ayesha Rahman',  abbreviation: 'AYR', designation: 'Associate Professor', department: 'CSE' },
+      { full_name: 'Dr. Bikash Chandra', abbreviation: 'BIC', designation: 'Assistant Professor', department: 'CSE' },
     ],
     // NEW: Year_Sem master lookup — courses reference '1-1' which must exist here.
     year_sem: [
@@ -125,8 +125,8 @@ function buildCleanWorkbook() {
       { year_sem: '4-2', year: '4', semester: '2', group_code: '3-4', is_active: 'No' },
     ],
     courses: [
-      { course_code: 'CSE101', course_name: 'Intro to CS',   credit: '3.0', dept: 'Computer Science and Engineering (CSE)', year_sem: '1-1', teacher_abbr: 'AYR' },
-      { course_code: 'CSE102', course_name: 'Discrete Math', credit: '2.0', dept: 'Computer Science and Engineering (CSE)', year_sem: '1-1', teacher_abbr: 'BIC' },
+      { course_code: 'CSE101', course_name: 'Intro to CS',   credit: '3.0', dept: 'CSE', year_sem: '1-1', teacher_abbr: 'AYR' },
+      { course_code: 'CSE102', course_name: 'Discrete Math', credit: '2.0', dept: 'CSE', year_sem: '1-1', teacher_abbr: 'BIC' },
     ],
     rooms: [
       { room_id: 'R101', room_name: 'Room 101', type: 'classroom' },
@@ -159,7 +159,7 @@ function buildCleanWorkbook() {
     config: {
       university:    'Gopalganj Science and Technology University',
       faculty:       'Engineering Faculty',
-      department:    'Computer Science and Engineering (CSE)',
+      department:    'CSE',
       year:          '2026',
       semester:      'Fall',
       working_days:  'SUN,MON,TUE,WED,THU',

@@ -31,6 +31,9 @@ async function main() {
       conn = await mysql.createConnection({ uri: dbUrl, multipleStatements: true });
     }
   } else {
+    const user = process.env.DB_MIGRATE_USER || process.env.DB_USER || process.env.MYSQLUSER || 'root';
+    const password = (process.env.DB_MIGRATE_PASSWORD !== undefined ? process.env.DB_MIGRATE_PASSWORD : process.env.DB_PASSWORD) ?? (process.env.MYSQLPASSWORD ?? '');
+
     conn = await mysql.createConnection({
       host: process.env.DB_HOST || process.env.MYSQLHOST || 'localhost',
       port: Number(process.env.DB_PORT || process.env.MYSQLPORT) || 3306,

@@ -153,6 +153,70 @@ const ALL_DEPARTMENTS = Object.values(FACULTY_DEPARTMENTS).flat().sort();
 
 const ALL_FACULTIES = Object.keys(FACULTY_CONFIG);
 
+function normalizeFaculty(fac) {
+  if (!fac) return 'Engineering';
+  const clean = String(fac).trim();
+  if (clean.includes('Engineering')) return 'Engineering';
+  if (clean.includes('Life Science')) return 'Life Science';
+  if (clean.includes('Social Science')) return 'Social Science';
+  if (clean.includes('Business')) return 'Business Studies';
+  if (clean.includes('Humanities') || clean.includes('Arts')) return 'Humanities';
+  if (clean.includes('Science') && !clean.includes('Life') && !clean.includes('Social')) return 'Science';
+  if (clean.includes('Law')) return 'Law';
+  if (clean.includes('Animal') || clean.includes('Veterinary') || clean.includes('ASVM')) return 'Animal Science and Veterinary Medicine';
+  if (clean.includes('Agriculture') || clean.includes('Agri')) return 'Agriculture';
+  return clean;
+}
+
+function normalizeDepartment(dept) {
+  if (!dept) return 'CSE';
+  const d = String(dept).trim();
+  const lower = d.toLowerCase();
+  
+  if (lower === 'cse' || lower.includes('computer science')) return 'CSE';
+  if (lower === 'eee' || lower.includes('electrical and electronic')) return 'EEE';
+  if (lower === 'ete' || lower.includes('electronics and telecommunication')) return 'ETE';
+  if (lower === 'acce' || lower.includes('applied chemistry')) return 'ACCE';
+  if (lower === 'ce' || lower.includes('civil engineering')) return 'CE';
+  if (lower === 'fe' || lower === 'fape' || lower.includes('food')) return 'Food and Agroprocess Engineering';
+  if (lower === 'arch' || lower.includes('architecture')) return 'ARCH';
+  
+  if (lower.includes('math')) return 'Mathematics';
+  if (lower.includes('stat')) return 'Statistics';
+  if (lower.includes('chem') && !lower.includes('applied')) return 'Chemistry';
+  if (lower.includes('phy')) return 'Physics';
+  if (lower === 'esdm' || lower.includes('environmental')) return 'ESDM';
+  
+  if (lower.includes('pharm')) return 'Pharmacy';
+  if (lower === 'bge' || lower.includes('biotechnology')) return 'BGE';
+  if (lower === 'bmb' || lower.includes('biochemistry')) return 'BMB';
+  if (lower.includes('botany') || lower === 'bot') return 'Botany';
+  
+  if (lower.includes('english') || lower === 'eng') return 'English';
+  if (lower.includes('bangla') || lower.includes('bengali') || lower === 'ban') return 'Bangla';
+  if (lower.includes('history') || lower === 'his') return 'History';
+  
+  if (lower.includes('psychology') || lower === 'psy') return 'Psychology';
+  if (lower.includes('sociology') || lower === 'soc') return 'Sociology';
+  if (lower === 'pad' || lower.includes('public administration')) return 'PAD';
+  if (lower === 'ir' || lower.includes('international relations')) return 'IR';
+  if (lower.includes('econ') || lower === 'eco') return 'Economics';
+  if (lower === 'ps' || lower.includes('political science')) return 'PS';
+  
+  if (lower.includes('management') || lower === 'mgt') return 'Management Studies';
+  if (lower === 'ais' || lower.includes('accounting')) return 'AIS';
+  if (lower.includes('marketing') || lower === 'mkt') return 'Marketing';
+  if (lower.includes('finance') || lower === 'fb') return 'Finance and Banking';
+  if (lower === 'thm' || lower.includes('tourism')) return 'THM';
+  
+  if (lower.includes('law') || lower === 'llb') return 'Law';
+  if (lower === 'asvm' || lower.includes('animal science')) return 'ASVM';
+  if (lower.includes('agri')) return 'Agriculture';
+  if (lower === 'fmb' || lower.includes('fisheries')) return 'FMB';
+
+  return d;
+}
+
 const Homepage = () => {
   const navigate = useNavigate();
   const [routinesList, setRoutinesList] = useState([]);
@@ -171,6 +235,14 @@ const Homepage = () => {
   };
 
   useEffect(() => { fetchList(); }, []);
+
+  const normalizedRoutines = useMemo(() => {
+    return routinesList.map(item => ({
+      ...item,
+      faculty: normalizeFaculty(item.faculty),
+      department: normalizeDepartment(item.department)
+    }));
+  }, [routinesList]);
 
   const handleDeptClick = (item) => {
     navigate(`/routines/${item.id}`);
@@ -196,7 +268,7 @@ const Homepage = () => {
 
   // Handle active filters
   const filtered = useMemo(() => {
-    return routinesList.filter(item => {
+    return normalizedRoutines.filter(item => {
       // Faculty filter
       if (selectedFaculty !== 'All' && item.faculty !== selectedFaculty) {
         return false;
@@ -216,7 +288,7 @@ const Homepage = () => {
       }
       return true;
     });
-  }, [routinesList, selectedFaculty, selectedDepartment, searchQuery]);
+  }, [normalizedRoutines, selectedFaculty, selectedDepartment, searchQuery]);
 
   // Group filtered results by faculty
   const grouped = useMemo(() => {
@@ -423,9 +495,6 @@ const Homepage = () => {
                           <h3 className="text-lg font-extrabold leading-tight tracking-tight text-slate-800 group-hover:text-sky-600 transition-colors">
                             {item.department}
                           </h3>
-                          <p className="text-[10px] text-slate-400 font-medium mt-0.5 truncate">
-                            {item.filename || item.semesterName || 'Class Routine'}
-                          </p>
                         </div>
 
                         <div className="flex items-center justify-between pt-2 border-t border-slate-100">

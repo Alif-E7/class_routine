@@ -145,7 +145,7 @@ router.post('/:id/edit', async (req, res, next) => {
     //    not produce a usable proposal.
     const config = {
       university: 'Gopalganj Science and Technology University',
-      department: 'Computer Science and Engineering',
+      department: 'CSE',
       semester: batch.semester,
     };
     let aiResult;

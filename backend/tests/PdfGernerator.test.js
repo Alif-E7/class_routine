@@ -116,7 +116,7 @@ describe('PdfGernerator — full pipeline', () => {
 
   const SAMPLE_HEADER = {
     university: 'Gopalganj Science and Technology University',
-    department: 'Computer Science and Engineering',
+    department: 'CSE',
     semester: '2026 July-December',
   };
 

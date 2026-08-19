@@ -9,7 +9,7 @@ const fs = require('fs');
 
 const XLSX = require('xlsx');
 const { parseWorkbook, ParseError } = require('../services/excelParser');
-const { validate } = require('../services/validators');
+const { validate, resolveDepartmentName } = require('../services/validators');
 const { buildLookup, deriveForCourse, DeriveRulesError } = require('../services/deriveRules');
 const { explainUploadIssues } = require('../services/aiProvider');
 const { getPool, withTransaction } = require('../db/pool');
@@ -186,7 +186,7 @@ router.post('/', upload.single('file'), async (req, res, next) => {
         await conn.query(
           `INSERT INTO teachers (full_name, abbreviation, designation, department, upload_batch_id)
            VALUES (?, ?, ?, ?, ?)`,
-          [t.full_name, t.abbreviation, t.designation, t.department, batchId]
+          [t.full_name, t.abbreviation, t.designation, resolveDepartmentName(t.department), batchId]
         );
       }
 
@@ -254,9 +254,10 @@ router.post('/', upload.single('file'), async (req, res, next) => {
 
       // Config (key/value)
       for (const [k, v] of Object.entries(workbook.config || {})) {
+        const valToStore = (k === 'department') ? resolveDepartmentName(v) : v;
         await conn.query(
           `INSERT INTO config (\`key\`, \`value\`, upload_batch_id) VALUES (?, ?, ?)`,
-          [k, v, batchId]
+          [k, valToStore, batchId]
         );
       }
 
@@ -283,7 +284,7 @@ router.post('/', upload.single('file'), async (req, res, next) => {
               derived_type, derived_duration_min, derived_classes_per_week, upload_batch_id)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
-            c.course_code, c.course_name, c.credit, c.dept, c.year_sem, c.teacher_abbr,
+            c.course_code, c.course_name, c.credit, resolveDepartmentName(c.dept), c.year_sem, c.teacher_abbr,
             derived.type, derived.duration_minutes, derived.classes_per_week, batchId,
           ]
         );

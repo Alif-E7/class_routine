@@ -154,7 +154,9 @@ describe('migrate.js behaviour', () => {
   });
 
   it('skips .sql files already present in _migrations (idempotent re-run)', async () => {
-    global.mockMigrateState.appliedRows = [{ name: '001_initial.sql' }];
+    const dir = path.join(__dirname, '..', 'src', 'db', 'migrations');
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.sql'));
+    global.mockMigrateState.appliedRows = files.map(name => ({ name }));
     await runMigrate();
     const queries = global.mockMigrateState.queryCaptures[0];
     const apply = queries.find((q) => /CREATE TABLE/i.test(q.sql) && /upload_batches/i.test(q.sql));

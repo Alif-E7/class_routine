@@ -93,7 +93,7 @@ Upload form: `semesterName = "January-July 2025"`, `departmentCode = "CSE"`. **D
 | Column | Type | Required | Example |
 |---|---|---|---|
 | `dept_code` | text | yes | `CSE` (or `(Auto-filled)`) |
-| `dept_name` | text | yes | `Computer Science and Engineering` |
+| `dept_name` | text | yes | `CSE` |
 | `faculty` | text | yes | `Engineering` (or `Science`, `Life Science`, `Humanities`, `Business`, `Other`) |
 
 #### `Teachers`

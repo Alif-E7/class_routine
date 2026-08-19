@@ -548,13 +548,6 @@ const AUTHORITATIVE_FACULTY_DEPARTMENTS = {
     'CE',
     'Food and Agroprocess Engineering',
     'ARCH',
-    'Computer Science and Engineering (CSE)',
-    'Electrical and Electronic Engineering (EEE)',
-    'Electronics and Telecommunication Engineering (ETE)',
-    'Applied Chemistry and Chemical Engineering (ACCE)',
-    'Civil Engineering (CE)',
-    'Food Engineering (FE)',
-    'Architecture (ARCH)',
   ],
   'Science Faculty': [
     'Mathematics',
@@ -562,16 +555,12 @@ const AUTHORITATIVE_FACULTY_DEPARTMENTS = {
     'Chemistry',
     'Physics',
     'ESDM',
-    'Environmental Science & Disaster Management',
-    'Environmental Science and Disaster Management (ESDM)',
   ],
   'Life Science Faculty': [
     'Pharmacy',
     'BGE',
     'BMB',
     'Botany',
-    'Biotechnology and Genetic Engineering (BGE)',
-    'Biochemistry and Molecular Biology (BMB)',
   ],
   'Humanities Faculty': [
     'English',
@@ -585,9 +574,6 @@ const AUTHORITATIVE_FACULTY_DEPARTMENTS = {
     'IR',
     'Economics',
     'PS',
-    'Public Administration (PAD)',
-    'International Relations (IR)',
-    'Political Science (PS)',
   ],
   'Business Studies Faculty': [
     'Management Studies',
@@ -595,20 +581,16 @@ const AUTHORITATIVE_FACULTY_DEPARTMENTS = {
     'Marketing',
     'Finance and Banking',
     'THM',
-    'Accounting and Information Systems (AIS)',
-    'Tourism and Hospitality Management (THM)',
   ],
   'Law Faculty': [
     'Law',
   ],
   'Animal Science and Veterinary Medicine Faculty': [
     'ASVM',
-    'Animal Science and Veterinary Medicine (ASVM)',
   ],
   'Faculty of Agriculture': [
     'Agriculture',
     'FMB',
-    'Fisheries and Marine Bioscience (FMB)',
   ],
 };
 
@@ -648,6 +630,21 @@ function resolveFacultyName(name) {
   return null;
 }
 
+function resolveDepartmentName(dept) {
+  if (!dept) return '';
+  const d = String(dept).trim();
+  if (!d) return '';
+
+  for (const [fac, depts] of Object.entries(AUTHORITATIVE_FACULTY_DEPARTMENTS)) {
+    for (const canonicalDept of depts) {
+      if (matchDepartment(d, canonicalDept)) {
+        return canonicalDept;
+      }
+    }
+  }
+  return d;
+}
+
 module.exports = {
   validate,
   VALID_ROOM_TYPES,
@@ -657,6 +654,7 @@ module.exports = {
   AUTHORITATIVE_FACULTY_DEPARTMENTS,
   ALL_AUTHORITATIVE_DEPARTMENTS,
   resolveFacultyName,
+  resolveDepartmentName,
   matchDepartment,
   normalizeDeptName,
   yearGroupFromYearSem,
