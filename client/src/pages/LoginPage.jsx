@@ -54,7 +54,7 @@ const LoginPage = () => {
         </div>
 
         {/* Card */}
-        <div className="bg-white/[0.06] backdrop-blur-2xl border border-white/10 rounded-3xl p-8 shadow-2xl">
+        <div className="bg-white/[0.06] backdrop-blur-2xl border border-white/10 rounded-3xl p-5 sm:p-8 shadow-2xl">
           {/* Card header */}
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 bg-sky-500/15 border border-sky-400/20 rounded-xl">

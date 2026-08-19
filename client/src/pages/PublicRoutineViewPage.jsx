@@ -161,11 +161,11 @@ const PublicRoutineViewPage = () => {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 w-full md:w-auto">
               <button
                 onClick={downloadPDF}
                 disabled={downloadingPdf}
-                className="bg-white/10 hover:bg-white/20 text-white px-3.5 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                className="w-full sm:w-auto bg-white/10 hover:bg-white/20 active:bg-white/30 text-white px-4 py-2.5 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-[42px] sm:min-h-0 shadow-xs"
               >
                 {downloadingPdf ? (
                   <Loader2 className="w-4 h-4 animate-spin" />

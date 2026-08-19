@@ -97,15 +97,15 @@ const RoutineFilterBar = ({ assignments = [], teachers = [], filters = {}, onFil
   };
 
   const selectClass =
-    'w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 ' +
-    'focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ' +
-    'disabled:bg-slate-50 disabled:text-slate-400 transition-colors';
+    'w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 sm:py-2 text-sm sm:text-xs font-semibold text-slate-700 ' +
+    'focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent min-h-[42px] sm:min-h-0 ' +
+    'disabled:bg-slate-50 disabled:text-slate-400 transition-colors cursor-pointer';
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-4">
+    <div className="bg-white border border-slate-200/90 rounded-2xl shadow-xs p-3.5 sm:px-5 sm:py-4">
       <div className="flex items-center gap-2 mb-3">
-        <Filter className="w-4 h-4 text-blue-700" />
-        <span className="text-sm font-semibold text-slate-700">Filter Routine</span>
+        <Filter className="w-4 h-4 text-sky-600 shrink-0" />
+        <span className="text-xs sm:text-sm font-bold text-slate-800">Filter Routine</span>
         {hasFilters && (
           <button
             onClick={clearAll}

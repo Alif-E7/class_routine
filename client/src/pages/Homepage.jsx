@@ -312,37 +312,37 @@ const Homepage = () => {
           <div className="absolute left-0 bottom-0 w-64 h-24 bg-gradient-to-tr from-sky-600/10 to-transparent" />
         </div>
 
-        <div className="relative flex items-center justify-between gap-4 px-6 py-6">
-          <div className="flex items-center gap-4 min-w-0">
-            <div className="shrink-0 w-12 h-12 rounded-xl bg-gradient-to-br from-sky-400 to-indigo-600 flex items-center justify-center shadow-lg">
-              <Waves className="w-6 h-6 text-white" />
+        <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 px-4 sm:px-6 py-4 sm:py-6">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+            <div className="shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-sky-400 to-indigo-600 flex items-center justify-center shadow-lg">
+              <Waves className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">Class Routines</h1>
-                <Sparkles className="w-4.5 h-4.5 text-amber-400 shrink-0" />
-                <span className="text-[10px] font-bold uppercase tracking-widest text-sky-400 bg-sky-400/10 border border-sky-400/20 px-2.5 py-0.5 rounded-full">
-                  Official Schedules
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <h1 className="text-lg sm:text-2xl font-bold text-white tracking-tight">Class Routines</h1>
+                <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-widest text-sky-400 bg-sky-400/10 border border-sky-400/20 px-2 py-0.5 rounded-full">
+                  Official
                 </span>
               </div>
-              <p className="text-slate-400 text-xs mt-1 hidden sm:block">
+              <p className="text-slate-400 text-[11px] sm:text-xs mt-0.5 sm:mt-1">
                 Browse weekly timetables by faculty and department
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-4 py-2">
-            <GraduationCap className="w-5 h-5 text-sky-400" />
+          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3.5 py-1.5 sm:py-2 self-start sm:self-auto shrink-0">
+            <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-sky-400 shrink-0" />
             <div>
-              <p className="text-base font-bold text-white leading-none">{routinesList.length}</p>
-              <p className="text-[9px] uppercase tracking-widest text-slate-500 leading-none mt-1 font-bold">Saved Routines</p>
+              <p className="text-sm sm:text-base font-bold text-white leading-none">{routinesList.length}</p>
+              <p className="text-[8px] sm:text-[9px] uppercase tracking-widest text-slate-400 leading-none mt-1 font-bold">Saved Routines</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* ── PREMIUM FILTER & SEARCH BAR ─────────────────────────── */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm space-y-4 md:space-y-0 md:flex md:items-center md:gap-4">
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-3.5 sm:p-5 shadow-xs space-y-2.5 md:space-y-0 md:flex md:items-center md:gap-3">
         {/* Search */}
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -351,21 +351,20 @@ const Homepage = () => {
             placeholder="Search by year, term or keyword..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-xs font-semibold bg-slate-50 hover:bg-slate-100/50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all"
+            className="w-full pl-9 pr-4 py-2.5 sm:py-2 text-sm sm:text-xs font-semibold bg-slate-50 hover:bg-slate-100/50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all min-h-[42px] sm:min-h-0"
           />
         </div>
 
         {/* Faculty Select */}
-        <div className="relative min-w-[200px]">
+        <div className="relative w-full md:w-auto md:min-w-[200px]">
           <Layers className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <select
             value={selectedFaculty}
             onChange={e => {
               setSelectedFaculty(e.target.value);
-              // Reset department selection if it does not belong to new faculty
               setSelectedDepartment('All');
             }}
-            className="w-full pl-9 pr-8 py-2 text-xs font-semibold bg-slate-50 hover:bg-slate-100/50 border border-slate-200 rounded-xl text-slate-700 appearance-none focus:outline-none focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all cursor-pointer"
+            className="w-full pl-9 pr-8 py-2.5 sm:py-2 text-sm sm:text-xs font-semibold bg-slate-50 hover:bg-slate-100/50 border border-slate-200 rounded-xl text-slate-700 appearance-none focus:outline-none focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all cursor-pointer min-h-[42px] sm:min-h-0"
           >
             <option value="All">All Faculties (সব অনুষদ)</option>
             {ALL_FACULTIES.map(fac => (
@@ -376,12 +375,12 @@ const Homepage = () => {
         </div>
 
         {/* Department Select */}
-        <div className="relative min-w-[220px]">
+        <div className="relative w-full md:w-auto md:min-w-[200px]">
           <LayoutGrid className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <select
             value={selectedDepartment}
             onChange={e => setSelectedDepartment(e.target.value)}
-            className="w-full pl-9 pr-8 py-2 text-xs font-semibold bg-slate-50 hover:bg-slate-100/50 border border-slate-200 rounded-xl text-slate-700 appearance-none focus:outline-none focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all cursor-pointer"
+            className="w-full pl-9 pr-8 py-2.5 sm:py-2 text-sm sm:text-xs font-semibold bg-slate-50 hover:bg-slate-100/50 border border-slate-200 rounded-xl text-slate-700 appearance-none focus:outline-none focus:bg-white focus:border-sky-500 focus:ring-2 focus:ring-sky-100 transition-all cursor-pointer min-h-[42px] sm:min-h-0"
           >
             <option value="All">All Departments (সব বিভাগ)</option>
             {availableDepartments.map(dept => (
@@ -399,7 +398,7 @@ const Homepage = () => {
               setSelectedFaculty('All');
               setSelectedDepartment('All');
             }}
-            className="w-full md:w-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs rounded-xl transition-all"
+            className="w-full md:w-auto px-4 py-2.5 sm:py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all min-h-[42px] sm:min-h-0 active:bg-slate-300"
           >
             Reset Filters
           </button>
@@ -415,9 +414,9 @@ const Homepage = () => {
 
       {/* ── NO RESULTS BANNER ── */}
       {!loadingList && filtered.length === 0 && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-16 text-center shadow-sm">
-          <Filter className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-          <h3 className="text-base font-bold text-slate-700">কোনো রুটিন খুঁজে পাওয়া যায়নি (No routines found)</h3>
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 sm:p-16 text-center shadow-xs">
+          <Filter className="w-10 h-10 sm:w-12 sm:h-12 mx-auto text-slate-300 mb-3" />
+          <h3 className="text-sm sm:text-base font-bold text-slate-700">কোনো রুটিন খুঁজে পাওয়া যায়নি (No routines found)</h3>
           <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
             আপনার সিলেক্ট করা ফিল্টারের সাথে মিলে যায় এমন কোনো ক্লাস রুটিন পাওয়া যায়নি। ফিল্টার রিসেট করে আবার চেষ্টা করুন।
           </p>
@@ -427,7 +426,7 @@ const Homepage = () => {
               setSelectedFaculty('All');
               setSelectedDepartment('All');
             }}
-            className="mt-4 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all"
+            className="mt-4 px-4 py-2.5 bg-sky-600 hover:bg-sky-700 active:bg-sky-800 text-white font-bold text-xs rounded-xl shadow-xs transition-all"
           >
             ফিল্টার রিসেট করুন (Reset Filters)
           </button>

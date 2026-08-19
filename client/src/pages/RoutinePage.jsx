@@ -347,38 +347,36 @@ const RoutinePage = () => {
             </p>
           </div>
         </div>
-        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto">
-
-
+        <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto">
           <button
             onClick={handleDownload}
             disabled={!hasSchedule || downloading != null || generating}
-            className="bg-white/10 hover:bg-white/20 text-white px-2.5 sm:px-3 py-2 rounded-lg text-xs sm:text-sm font-medium transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-full sm:w-auto bg-white/10 hover:bg-white/20 active:bg-white/30 text-white px-3 sm:px-3.5 py-2.5 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed min-h-[42px] sm:min-h-0"
             title={hasSchedule ? 'Download as .pdf' : 'Generate the routine first'}
           >
             {downloading === 'pdf' ? (
-              <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <FileDown className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <FileDown className="w-4 h-4" />
             )}
             Download PDF
           </button>
           <button
             onClick={handleGenerate}
             disabled={generating}
-            className="col-span-2 sm:col-span-1 bg-sky-500 hover:bg-sky-400 text-white px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+            className="w-full sm:w-auto bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white px-4 py-2.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 min-h-[42px] sm:min-h-0 shadow-md"
           >
             {generating ? (
               <>
-                <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> Generating…
+                <Loader2 className="w-4 h-4 animate-spin" /> Generating…
               </>
             ) : hasSchedule ? (
               <>
-                <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Re-generate
+                <Play className="w-4 h-4" /> Re-generate
               </>
             ) : (
               <>
-                <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Generate Routine
+                <Play className="w-4 h-4" /> Generate Routine
               </>
             )}
           </button>
@@ -387,7 +385,7 @@ const RoutinePage = () => {
 
       {/* Counts strip */}
       {batch?.counts && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
           <CountChip label="Teachers" value={batch.counts.teachers} />
           <CountChip label="Courses" value={batch.counts.courses} />
           <CountChip label="Rooms" value={batch.counts.rooms} />
@@ -410,17 +408,13 @@ const RoutinePage = () => {
         </div>
       )}
 
-      {/* Validation errors + warnings from upload step (if any).
-          Placed ABOVE the Ask-AI panel so the user reads the diagnosis
-          first, then can keep the conversation grouped right below. */}
+      {/* Validation errors + warnings from upload step (if any) */}
       {batch?.error_log && (
         <ValidationErrorPanel
           errorLog={batch.error_log}
           batchId={batchId}
         />
       )}
-
-
 
       {/* Filter bar — only shown when schedule exists */}
       {hasSchedule && (
@@ -434,20 +428,20 @@ const RoutinePage = () => {
 
       {/* ── Add to Class Routine — between filter bar and grid ── */}
       {hasSchedule && (
-        <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-sky-50 to-indigo-50 border border-sky-200/60 rounded-xl px-4 py-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-gradient-to-r from-sky-50 to-indigo-50 border border-sky-200/60 rounded-2xl p-3.5 sm:px-4 sm:py-3 shadow-xs">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-400 to-indigo-600 flex items-center justify-center shadow-sm shrink-0">
               <BookmarkPlus className="w-4 h-4 text-white" />
             </div>
             <div>
-              <p className="text-sm font-bold text-slate-800 leading-tight">Publish to Class Routines</p>
-              <p className="text-xs text-slate-500 mt-0.5">Make this routine available on the public Class Routines homepage</p>
+              <p className="text-xs sm:text-sm font-bold text-slate-800 leading-tight">Publish to Class Routines</p>
+              <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">Make this routine available on the public Class Routines homepage</p>
             </div>
           </div>
           <button
             onClick={() => setShowAddToClassRoutineModal(true)}
             disabled={generating}
-            className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white text-xs font-bold rounded-lg shadow-md transition-all disabled:opacity-50"
+            className="w-full sm:w-auto shrink-0 flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 active:from-sky-600 active:to-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition-all disabled:opacity-50 min-h-[42px] sm:min-h-0"
           >
             <BookmarkPlus className="w-3.5 h-3.5" />
             Add to Class Routine

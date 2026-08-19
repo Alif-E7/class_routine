@@ -102,9 +102,30 @@
   }
 }
 
-/* ── Scrollbar styling ── */
-* { -webkit-overflow-scrolling: touch; }
+/* ── Mobile Touch & Scroll Optimizations ── */
+* {
+  -webkit-overflow-scrolling: touch;
+  -webkit-tap-highlight-color: transparent;
+}
 
+/* Prevent unwanted zoom on iPhone / Safari when focusing form inputs */
+@media (max-width: 639px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Buttons and interactive elements touch responsiveness */
+button, a, select, input {
+  touch-action: manipulation;
+}
+
+/* Safe area padding helper */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 1rem);
+}
+
+/* ── Scrollbar styling ── */
 ::-webkit-scrollbar { height: 5px; width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(14,165,233,0.25); border-radius: 10px; }

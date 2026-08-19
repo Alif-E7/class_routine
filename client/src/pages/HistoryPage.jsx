@@ -438,7 +438,87 @@ const HistoryPage = () => {
             </div>
           )}
 
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-x-auto">
+          {/* Mobile Card List View (< 640px) */}
+          <div className="block sm:hidden space-y-3">
+            {displayedBatches.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-500 shadow-xs">
+                <Building2 className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                <p className="font-semibold text-slate-700 text-sm">
+                  No routines found for department &ldquo;{selectedDepartment}&rdquo;
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSelectedDepartment('All')}
+                  className="mt-2 text-xs font-semibold text-sky-600 hover:text-sky-800 underline cursor-pointer"
+                >
+                  View all departments
+                </button>
+              </div>
+            ) : (
+              displayedBatches.map((b, index) => {
+                const StatusIcon = STATUS_ICON[b.status] || CheckCircle2;
+                const displayNo = batches.length - index;
+                return (
+                  <div
+                    key={b.id}
+                    onClick={() => navigate(`/batches/${b.id}`)}
+                    className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-xs hover:border-sky-400 active:bg-slate-50 transition-all cursor-pointer space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-sky-600 bg-sky-50 px-2 py-0.5 rounded-md border border-sky-200">
+                          #{displayNo}
+                        </span>
+                        <h3 className="font-bold text-base text-slate-900 leading-tight">
+                          {b.department || 'CSE'}
+                        </h3>
+                      </div>
+                      <span
+                        className={`inline-flex items-center gap-1 text-[11px] font-semibold border px-2 py-0.5 rounded-full shrink-0 ${
+                          STATUS_STYLES[b.status] || 'bg-slate-50 text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        <StatusIcon className="w-3 h-3" />
+                        {String(b.status || 'unknown').replace(/_/g, ' ')}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-slate-600 space-y-1">
+                      {b.faculty && (
+                        <p className="text-slate-500 font-medium">{b.faculty}</p>
+                      )}
+                      <div className="flex items-center gap-2 text-slate-700 font-semibold">
+                        <Calendar className="w-3.5 h-3.5 text-ocean-600 shrink-0" />
+                        <span>{b.year || '—'}</span>
+                        {b.semester && <span className="font-normal text-slate-500">({b.semester})</span>}
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Imported: {b.created_at ? new Date(b.created_at).toLocaleDateString() : '—'}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2.5 border-t border-slate-100">
+                      <button
+                        type="button"
+                        onClick={(e) => handleAskDelete(e, b)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 active:bg-red-200 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Delete
+                      </button>
+                      <div className="flex items-center gap-1 text-xs font-bold text-sky-600">
+                        <span>View Schedule</span>
+                        <ChevronRight className="w-4 h-4" />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Desktop Table View (>= 640px) */}
+          <div className="hidden sm:block bg-white border border-slate-200 rounded-2xl shadow-sm overflow-x-auto">
             <table className="w-full text-sm" style={{ minWidth: '950px' }}>
               <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
                 <tr>

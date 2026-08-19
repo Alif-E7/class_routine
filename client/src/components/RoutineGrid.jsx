@@ -327,8 +327,13 @@ const RoutineGrid = ({
     <div className="relative">
       <div className="bg-white border border-blue-900 rounded-lg overflow-x-auto shadow-md font-sans touch-pan-x select-none mb-4">
         {/* Mobile Horizontal Scroll Hint */}
-        <div className="md:hidden bg-sky-100 text-sky-900 text-xs px-3 py-2 border-b border-sky-300 flex items-center justify-between font-medium">
-          <span>👈 Swipe left/right to view all time slots 👉</span>
+        <div className="md:hidden bg-sky-50 text-sky-900 text-xs px-3.5 py-2 border-b border-sky-200 flex items-center justify-between font-medium">
+          <span className="flex items-center gap-1.5 font-semibold text-[11px]">
+            <span>↔️ Swipe horizontally to view full timetable</span>
+          </span>
+          <span className="text-[10px] text-sky-700 bg-white px-2 py-0.5 rounded-full border border-sky-200 font-bold">
+            Tap slot for details
+          </span>
         </div>
 
         <table className="w-full border-collapse min-w-[900px] text-left">
@@ -720,9 +725,14 @@ function TeacherLegend({ teachers }) {
   }
 
   return (
-    <div className="border-t border-slate-300 bg-slate-50 p-4">
-      <h3 className="font-bold text-sm mb-3 text-blue-900">Teacher Legend</h3>
-      <div className="overflow-x-auto">
+    <div className="border-t border-slate-300 bg-slate-50 p-3 sm:p-4">
+      <h3 className="font-bold text-xs sm:text-sm mb-2.5 text-blue-900 flex items-center justify-between">
+        <span>Teacher Legend</span>
+        <span className="text-[10px] font-normal text-slate-500">{teachers.length} teacher{teachers.length !== 1 ? 's' : ''}</span>
+      </h3>
+
+      {/* Desktop & Tablet Table (>= 640px) */}
+      <div className="hidden sm:block overflow-x-auto">
         <table className="w-full text-[11px] border-collapse border border-slate-300 bg-white">
           <thead>
             <tr className="bg-slate-100 text-slate-900 text-center font-bold">
@@ -751,6 +761,34 @@ function TeacherLegend({ teachers }) {
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile Card Grid (< 640px) */}
+      <div className="grid grid-cols-1 gap-2 sm:hidden">
+        {sorted.map((t, idx) => (
+          <div key={idx} className="bg-white border border-slate-200 rounded-lg p-2.5 flex items-start justify-between gap-2 shadow-2xs">
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-slate-800 leading-tight truncate">
+                {t.full_name || t.abbreviation}
+              </p>
+              {t.designation && (
+                <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                  {t.designation}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col items-end shrink-0 gap-1">
+              <span className="px-2 py-0.5 bg-blue-50 text-blue-800 text-[10px] font-bold rounded-md border border-blue-200">
+                {t.abbreviation}
+              </span>
+              {t.department && (
+                <span className="text-[9px] font-semibold text-slate-400">
+                  {t.department}
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
