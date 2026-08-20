@@ -932,8 +932,8 @@ function TeacherLegend({ teachers }) {
         <span className="text-[10px] font-normal text-slate-500">{teachers.length} teacher{teachers.length !== 1 ? 's' : ''}</span>
       </h3>
 
-      {/* Desktop & Tablet Table (>= 640px) */}
-      <div className="hidden sm:block overflow-x-auto">
+      {/* 2-Column Side-by-Side Teacher Table (all devices) */}
+      <div className="overflow-x-auto">
         <table className="w-full text-[11px] border-collapse border border-slate-300 bg-white">
           <thead>
             <tr className="bg-slate-100 text-slate-900 text-center font-bold">
@@ -962,34 +962,6 @@ function TeacherLegend({ teachers }) {
             })}
           </tbody>
         </table>
-      </div>
-
-      {/* Mobile Card Grid (< 640px) */}
-      <div className="grid grid-cols-1 gap-2 sm:hidden">
-        {sorted.map((t, idx) => (
-          <div key={idx} className="bg-white border border-slate-200 rounded-lg p-2.5 flex items-start justify-between gap-2 shadow-2xs">
-            <div className="min-w-0">
-              <p className="text-xs font-bold text-slate-800 leading-tight truncate">
-                {t.full_name || t.abbreviation}
-              </p>
-              {t.designation && (
-                <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-                  {t.designation}
-                </p>
-              )}
-            </div>
-            <div className="flex flex-col items-end shrink-0 gap-1">
-              <span className="px-2 py-0.5 bg-blue-50 text-blue-800 text-[10px] font-bold rounded-md border border-blue-200">
-                {t.abbreviation}
-              </span>
-              {t.department && (
-                <span className="text-[9px] font-semibold text-slate-400">
-                  {t.department}
-                </span>
-              )}
-            </div>
-          </div>
-        ))}
       </div>
     </div>
   );
