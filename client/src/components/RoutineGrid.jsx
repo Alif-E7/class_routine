@@ -719,10 +719,15 @@ const RoutineGrid = ({
                         {hasBreak && idx === 0 && (
                           <td
                             rowSpan={activeRows.length}
-                            className="bg-yellow-200 text-blue-950 font-extrabold text-center border-l border-r border-b-2 border-yellow-500 w-8 text-xs tracking-widest select-none align-middle"
-                            style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}
+                            className="bg-yellow-300 text-blue-950 font-black text-center border-l border-r border-b-2 border-yellow-500 w-8 select-none align-middle"
                           >
-                            BREAK
+                            <div className="flex flex-col items-center justify-center gap-1 font-extrabold text-[12px] leading-tight tracking-normal text-slate-900">
+                              <span>B</span>
+                              <span>R</span>
+                              <span>E</span>
+                              <span>A</span>
+                              <span>K</span>
+                            </div>
                           </td>
                         )}
                         {afternoon.map((slot) => {
