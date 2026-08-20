@@ -427,8 +427,11 @@ const RoutineGrid = ({
 
   return (
     <div className="relative">
-      {/* ── Interactive Zoom Toolbar ── */}
-      <div className="bg-slate-900/90 backdrop-blur-md text-white rounded-2xl px-3.5 py-2 mb-3 shadow-lg border border-slate-700/60 flex flex-wrap items-center justify-between gap-2.5 transition-all">
+      {/* ── Interactive Zoom Toolbar (Excluded from PDF capture) ── */}
+      <div
+        data-pdf-exclude="true"
+        className="routine-zoom-toolbar bg-slate-900/90 backdrop-blur-md text-white rounded-2xl px-3.5 py-2 mb-3 shadow-lg border border-slate-700/60 flex flex-wrap items-center justify-between gap-2.5 transition-all print:hidden"
+      >
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider hidden sm:inline">
             Routine Zoom:
@@ -510,7 +513,10 @@ const RoutineGrid = ({
       >
         {/* Mobile Pinch / Pan Hint */}
         {zoomScale > fitScale && (
-          <div className="md:hidden bg-sky-50 text-sky-900 text-xs px-3.5 py-1.5 border-b border-sky-200 flex items-center justify-between font-medium">
+          <div
+            data-pdf-exclude="true"
+            className="md:hidden bg-sky-50 text-sky-900 text-xs px-3.5 py-1.5 border-b border-sky-200 flex items-center justify-between font-medium print:hidden"
+          >
             <span className="flex items-center gap-1.5 font-semibold text-[11px]">
               <span>↔️↕️ চারদিকে স্ক্রল / দুই আঙুলে পিঞ্চ করে জুম করুন</span>
             </span>
@@ -531,6 +537,8 @@ const RoutineGrid = ({
         >
           <div
             ref={tableRef}
+            id="routine-capture-target"
+            className="bg-white"
             style={{
               transform: `scale(${zoomScale})`,
               transformOrigin: 'top left',

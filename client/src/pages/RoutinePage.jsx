@@ -195,25 +195,35 @@ const RoutinePage = () => {
     const tid = toast.loading('Generating PDF (this might take a few seconds)...');
 
     try {
-      const element = document.getElementById('routine-pdf-container');
+      // Target the unscaled pure routine table element (excluding zoom toolbars, hints, and scrollbars)
+      const element = document.getElementById('routine-capture-target') || document.getElementById('routine-pdf-container');
       if (!element) throw new Error("Could not find the routine container.");
 
-      // We need to wait a tiny bit to ensure DOM is fully stable before capturing
+      // Wait a moment to ensure DOM layout is stable
       await new Promise(r => setTimeout(r, 100));
+
+      const captureWidth = element.scrollWidth || element.offsetWidth || 1000;
+      const captureHeight = element.scrollHeight || element.offsetHeight || 600;
 
       const scale = 2; // HD scale factor
       const style = {
         transform: `scale(${scale})`,
         transformOrigin: 'top left',
-        width: element.offsetWidth + 'px',
-        height: element.offsetHeight + 'px'
+        width: captureWidth + 'px',
+        height: captureHeight + 'px',
+        overflow: 'visible'
       };
 
       const imgData = await domtoimage.toJpeg(element, {
-        width: element.offsetWidth * scale,
-        height: element.offsetHeight * scale,
+        width: captureWidth * scale,
+        height: captureHeight * scale,
         quality: 0.98,
         bgcolor: '#ffffff',
+        filter: (node) => {
+          if (node.getAttribute && node.getAttribute('data-pdf-exclude') === 'true') return false;
+          if (node.classList && node.classList.contains('routine-zoom-toolbar')) return false;
+          return true;
+        },
         style
       });
 
