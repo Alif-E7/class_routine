@@ -589,8 +589,8 @@ describe('scheduler — teacher consecutive class constraint', () => {
 describe('scheduler — day load balancing (65% SUN-TUE / 35% WED-THU)', () => {
   test('distributes classes across all 5 working days matching 65%/35% target ratio', () => {
     const courses = [];
-    // Generate 10 theory courses (3 sessions per week = 30 total sessions)
-    for (let i = 1; i <= 10; i++) {
+    // Generate 6 3-credit theory courses (3 sessions/week) and 4 2-credit theory courses (2 sessions/week) = 26 sessions
+    for (let i = 1; i <= 6; i++) {
       courses.push({
         course_code: `CSE${100 + i}`,
         course_name: `Course ${i}`,
@@ -601,6 +601,19 @@ describe('scheduler — day load balancing (65% SUN-TUE / 35% WED-THU)', () => {
         derived_type: 'theory',
         derived_duration_min: 50,
         derived_classes_per_week: 3,
+      });
+    }
+    for (let i = 7; i <= 10; i++) {
+      courses.push({
+        course_code: `CSE${100 + i}`,
+        course_name: `Course ${i}`,
+        credit: 2.0,
+        dept: 'CSE',
+        year_sem: `1-${(i % 2) + 1}`,
+        teacher_abbr: `T${i}`,
+        derived_type: 'theory',
+        derived_duration_min: 50,
+        derived_classes_per_week: 2,
       });
     }
     const rooms = [
@@ -623,7 +636,7 @@ describe('scheduler — day load balancing (65% SUN-TUE / 35% WED-THU)', () => {
       },
     });
 
-    expect(out.length).toBe(30);
+    expect(out.length).toBe(26);
 
     const counts = { SUN: 0, MON: 0, TUE: 0, WED: 0, THU: 0 };
     for (const a of out) {
@@ -692,5 +705,129 @@ describe('scheduler — batch schedule compactness & gap minimization', () => {
       // If 9:00-10:40 and 11:30-13:10 are assigned, 10:40 (slot 3) should NOT be left empty
       expect(morningStarts.has(640)).toBe(true);
     }
+  });
+});
+
+describe('scheduler — teacher max 3 classes per day constraint', () => {
+  test('ensures a teacher is never assigned more than 3 classes on any single day', () => {
+    const courses = [
+      {
+        course_code: 'CSE101', course_name: 'Theory 1', credit: 3.0,
+        dept: 'CSE', year_sem: '1-1', teacher_abbr: 'T1',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 3,
+      },
+      {
+        course_code: 'CSE201', course_name: 'Theory 2', credit: 3.0,
+        dept: 'CSE', year_sem: '2-1', teacher_abbr: 'T1',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 3,
+      },
+      {
+        course_code: 'CSE301', course_name: 'Theory 3', credit: 3.0,
+        dept: 'CSE', year_sem: '3-1', teacher_abbr: 'T1',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 3,
+      },
+      {
+        course_code: 'CSE401', course_name: 'Theory 4', credit: 2.0,
+        dept: 'CSE', year_sem: '4-1', teacher_abbr: 'T1',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 2,
+      },
+    ];
+    const rooms = [
+      { room_id: 'R101', room_name: 'Room 101', type: 'classroom' },
+      { room_id: 'R102', room_name: 'Room 102', type: 'classroom' },
+      { room_id: 'R103', room_name: 'Room 103', type: 'classroom' },
+      { room_id: 'R104', room_name: 'Room 104', type: 'classroom' },
+    ];
+    const out = solve({
+      courses,
+      rooms,
+      room_preference: [],
+      teacher_unavailability: [],
+      config: {
+        working_days: 'SUN,MON,TUE,WED,THU',
+        class_start: '09:00',
+        class_end: '15:50',
+        break_start: '13:10',
+        break_end: '14:10',
+        duration_minutes: 50,
+      },
+    });
+
+    expect(out.length).toBe(11); // 3 + 3 + 3 + 2 = 11 sessions
+
+    // Group assignments by teacher and day to count classes per day
+    const teacherDailyCounts = new Map();
+    for (const a of out) {
+      const key = `${a.teacher_abbr}|${a.day}`;
+      // Count unique course sessions (in case of multi-slot labs)
+      const sessionKey = `${a.course_code}|${a.session_index}`;
+      if (!teacherDailyCounts.has(key)) teacherDailyCounts.set(key, new Set());
+      teacherDailyCounts.get(key).add(sessionKey);
+    }
+
+    for (const [key, sessionSet] of teacherDailyCounts.entries()) {
+      expect(sessionSet.size).toBeLessThanOrEqual(3);
+    }
+  });
+});
+
+describe('scheduler — 1-day gap constraint for 2 and 3 credit courses', () => {
+  test('places 3-credit courses on alternate days with at least 1-day gap (e.g. SUN, TUE, THU)', () => {
+    const courses = [
+      {
+        course_code: 'CSE101', course_name: 'Data Structures', credit: 3.0,
+        dept: 'CSE', year_sem: '1-1', teacher_abbr: 'T1',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 3,
+      },
+      {
+        course_code: 'CSE103', course_name: 'Discrete Math', credit: 3.0,
+        dept: 'CSE', year_sem: '1-1', teacher_abbr: 'T2',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 3,
+      },
+      {
+        course_code: 'CSE105', course_name: 'Digital Logic', credit: 2.0,
+        dept: 'CSE', year_sem: '1-1', teacher_abbr: 'T3',
+        derived_type: 'theory', derived_duration_min: 50, derived_classes_per_week: 2,
+      },
+    ];
+    const rooms = [
+      { room_id: 'R101', room_name: 'Room 101', type: 'classroom' },
+      { room_id: 'R102', room_name: 'Room 102', type: 'classroom' },
+    ];
+    const workingDays = ['SUN', 'MON', 'TUE', 'WED', 'THU'];
+    const dayIndexMap = new Map(workingDays.map((d, i) => [d, i]));
+
+    const out = solve({
+      courses,
+      rooms,
+      room_preference: [],
+      teacher_unavailability: [],
+      config: {
+        working_days: 'SUN,MON,TUE,WED,THU',
+        class_start: '09:00',
+        class_end: '15:50',
+        break_start: '13:10',
+        break_end: '14:10',
+        duration_minutes: 50,
+      },
+    });
+
+    expect(out.length).toBe(8); // 3 + 3 + 2 = 8 sessions
+
+    // Check 3-credit courses have 1-day gap (SUN, TUE, THU)
+    for (const code of ['CSE101', 'CSE103']) {
+      const days = [...new Set(out.filter(a => a.course_code === code).map(a => a.day))];
+      expect(days.length).toBe(3);
+      const indices = days.map(d => dayIndexMap.get(d)).sort((a, b) => a - b);
+      for (let i = 0; i < indices.length - 1; i++) {
+        expect(indices[i + 1] - indices[i]).toBeGreaterThanOrEqual(2);
+      }
+    }
+
+    // Check 2-credit course (CSE105) has at least 1-day gap
+    const cse105Days = [...new Set(out.filter(a => a.course_code === 'CSE105').map(a => a.day))];
+    expect(cse105Days.length).toBe(2);
+    const cse105Indices = cse105Days.map(d => dayIndexMap.get(d)).sort((a, b) => a - b);
+    expect(cse105Indices[1] - cse105Indices[0]).toBeGreaterThanOrEqual(2);
   });
 });

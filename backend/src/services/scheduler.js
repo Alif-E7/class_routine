@@ -286,6 +286,15 @@ function _solveCore(input, options = {}) {
     .split(',')
     .map((s) => s.trim().toUpperCase())
     .filter(Boolean);
+  const dayIndexMap = new Map(workingDays.map((d, i) => [d, i]));
+
+  function courseRequiresDayGap(course) {
+    const cpw = Number(course.derived_classes_per_week);
+    const cr = Number(course.credit);
+    const isTarget = (cpw === 2 || cpw === 3 || cr === 2 || cr === 3);
+    return isTarget && cpw <= Math.ceil(workingDays.length / 2);
+  }
+
   const unavailMap = indexUnavailability(input.teacher_unavailability || []);
   const weightTable = buildWeightTable(input.room_preference || []);
 
@@ -652,6 +661,22 @@ function _solveCore(input, options = {}) {
     if (v <= 0) semDayCount.delete(k); else semDayCount.set(k, v);
   }
 
+  // ── Teacher daily class-count cap (Hard Constraint: max 3 classes per day) ─
+  const MAX_CLASSES_PER_TEACHER_PER_DAY = options.maxClassesPerTeacherPerDay ?? 3;
+  const teacherDayCount = new Map(); // key: "teacher_abbr|day" → count (integer)
+
+  function teacherDayKey(teacherAbbr, day) { return `${teacherAbbr}|${day}`; }
+  function getTeacherDayCount(teacherAbbr, day) { return teacherDayCount.get(teacherDayKey(teacherAbbr, day)) || 0; }
+  function incTeacherDayCount(teacherAbbr, day) {
+    const k = teacherDayKey(teacherAbbr, day);
+    teacherDayCount.set(k, (teacherDayCount.get(k) || 0) + 1);
+  }
+  function decTeacherDayCount(teacherAbbr, day) {
+    const k = teacherDayKey(teacherAbbr, day);
+    const v = (teacherDayCount.get(k) || 0) - 1;
+    if (v <= 0) teacherDayCount.delete(k); else teacherDayCount.set(k, v);
+  }
+
   // Track overall global day counts to balance assignments across SUN,MON,TUE (55%) vs WED,THU (45%)
   const globalDayCount = new Map();
   function getGlobalDayCount(day) { return globalDayCount.get(day) || 0; }
@@ -702,6 +727,9 @@ function _solveCore(input, options = {}) {
     // classes per day regardless of period or time.
     if (getSemDayCount(course.year_sem, day) >= MAX_CLASSES_PER_BATCH_PER_DAY) return false;
 
+    // ── Teacher daily cap (Hard Constraint: max 3 classes per day) ────
+    if (getTeacherDayCount(course.teacher_abbr, day) >= MAX_CLASSES_PER_TEACHER_PER_DAY) return false;
+
     return true;
   }
 
@@ -723,6 +751,7 @@ function _solveCore(input, options = {}) {
     roomBusy.add(roomKey, start, end);
     semBusy.add(semKey, start, end);
     incSemDayCount(course.year_sem, day); // track per-batch daily class count
+    incTeacherDayCount(course.teacher_abbr, day); // track per-teacher daily class count
     incGlobalDayCount(day); // track global day assignment count
 
     for (let k = 0; k < slots.length; k++) {
@@ -758,6 +787,7 @@ function _solveCore(input, options = {}) {
     roomBusy.remove(`${first.room_id}|${first.day}`, first.slot_start, last.slot_end);
     semBusy.remove(`${first.year_sem}|${first.day}`, first.slot_start, last.slot_end);
     decSemDayCount(first.year_sem, first.day); // undo batch daily count
+    decTeacherDayCount(first.teacher_abbr, first.day); // undo teacher daily count
     decGlobalDayCount(first.day); // undo global day assignment count
   }
 
@@ -775,6 +805,7 @@ function _solveCore(input, options = {}) {
       roomBusy.remove(`${a.room_id}|${a.day}`, a.slot_start, a.slot_end);
       semBusy.remove(`${a.year_sem}|${a.day}`, a.slot_start, a.slot_end);
       decSemDayCount(a.year_sem, a.day); // undo batch daily count
+      decTeacherDayCount(a.teacher_abbr, a.day); // undo teacher daily count
       decGlobalDayCount(a.day); // undo global day assignment count
     }
   }
@@ -897,6 +928,21 @@ function _solveCore(input, options = {}) {
     const perDay = new Map(); // day -> Array<{ slots, freeRoomIds }>
     for (const day of workingDays) {
       if (usedDays.has(day)) continue;
+
+      // ── 1-Day Gap Constraint for 2 & 3 Credit Courses (Hard Constraint) ──
+      if (courseRequiresDayGap(course) && usedDays.size > 0) {
+        const candIdx = dayIndexMap.get(day);
+        let gapSatisfied = true;
+        for (const ud of usedDays) {
+          const udIdx = dayIndexMap.get(ud);
+          if (Math.abs(candIdx - udIdx) < 2) {
+            gapSatisfied = false;
+            break;
+          }
+        }
+        if (!gapSatisfied) continue;
+      }
+
       const daySlots = slotsForDayBy50[day];
       if (!daySlots) continue;
       for (let i = 0; i < daySlots.length; i++) {
