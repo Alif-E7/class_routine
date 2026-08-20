@@ -9,6 +9,8 @@ import {
   GraduationCap, Cpu, Atom, Leaf, BookOpen, Users, Briefcase, Scale, Stethoscope, Sprout
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import domtoimage from 'dom-to-image-more';
+import { jsPDF } from 'jspdf';
 
 const FACULTY_CONFIG = {
   Engineering: { icon: Cpu, gradient: 'from-indigo-500 to-violet-600', chip: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
@@ -59,24 +61,106 @@ const PublicRoutineViewPage = () => {
   const FacultyIcon = cfg?.icon || GraduationCap;
 
   const downloadPDF = async () => {
-    if (!meta.batchId) return;
-    const toastId = toast.loading('Generating PDF…');
+    const toastId = toast.loading('Generating PDF (this might take a few seconds)...');
     setDownloadingPdf(true);
     try {
-      const res = await fetch(`/api/batches/${meta.batchId}/export.pdf`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${meta.department}_${meta.year}_${meta.term}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast.success('PDF downloaded!', { id: toastId });
-    } catch (_err) {
-      toast.error('PDF export failed.', { id: toastId });
+      // Target the unscaled pure routine table element
+      const element = document.getElementById('routine-capture-target') || document.getElementById('routine-pdf-container');
+      if (!element) throw new Error("Could not find the routine container.");
+
+      // Clone the element offscreen to capture it at 100% full scale with zero scrollbars
+      const clone = element.cloneNode(true);
+      clone.style.transform = 'none';
+      clone.style.width = 'max-content';
+      clone.style.minWidth = '960px';
+      clone.style.maxWidth = 'none';
+      clone.style.height = 'auto';
+      clone.style.overflow = 'visible';
+      clone.style.position = 'fixed';
+      clone.style.top = '-99999px';
+      clone.style.left = '-99999px';
+      clone.style.zIndex = '-9999';
+      clone.style.background = '#ffffff';
+
+      // Ensure zero scrollbars or overflow clipping on all children
+      clone.querySelectorAll('*').forEach((el) => {
+        el.style.overflow = 'visible';
+      });
+
+      document.body.appendChild(clone);
+      await new Promise((r) => setTimeout(r, 100));
+
+      const captureWidth = clone.scrollWidth || 1000;
+      const captureHeight = clone.scrollHeight || 600;
+
+      const scale = 2; // HD scale factor
+      const style = {
+        transform: `scale(${scale})`,
+        transformOrigin: 'top left',
+        width: captureWidth + 'px',
+        height: captureHeight + 'px',
+        overflow: 'visible',
+      };
+
+      let imgData;
+      try {
+        imgData = await domtoimage.toJpeg(clone, {
+          width: captureWidth * scale,
+          height: captureHeight * scale,
+          quality: 0.98,
+          bgcolor: '#ffffff',
+          filter: (node) => {
+            if (node.getAttribute && node.getAttribute('data-pdf-exclude') === 'true') return false;
+            if (node.classList && node.classList.contains('routine-zoom-toolbar')) return false;
+            return true;
+          },
+          style,
+        });
+      } finally {
+        if (clone && clone.parentNode) {
+          clone.parentNode.removeChild(clone);
+        }
+      }
+
+      const img = new Image();
+      img.src = imgData;
+      await new Promise((r) => { img.onload = r; });
+
+      const pdfWidth = 1008;  // Legal landscape width in points (14 inches)
+      const pdfHeight = 612;  // Legal landscape height in points (8.5 inches)
+      const margin = 36;      // 0.5 inch margin in points
+      const maxWidth = pdfWidth - margin * 2;
+      const maxHeight = pdfHeight - margin * 2;
+
+      let printWidth = img.width;
+      let printHeight = img.height;
+      const ratio = printWidth / printHeight;
+      const maxRatio = maxWidth / maxHeight;
+
+      if (ratio > maxRatio) {
+        printWidth = maxWidth;
+        printHeight = maxWidth / ratio;
+      } else {
+        printHeight = maxHeight;
+        printWidth = maxHeight * ratio;
+      }
+
+      const x = (pdfWidth - printWidth) / 2;
+      const y = (pdfHeight - printHeight) / 2;
+
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'pt',
+        format: 'legal',
+      });
+
+      pdf.addImage(imgData, 'JPEG', x, y, printWidth, printHeight);
+      pdf.save(`${meta.department || 'Department'}_${meta.year || '2026'}_${meta.term || 'Routine'}.pdf`);
+
+      toast.success('PDF downloaded successfully!', { id: toastId });
+    } catch (err) {
+      console.error('PDF Generation Error:', err);
+      toast.error(`Error: ${err.message || 'Failed to generate PDF.'}`, { id: toastId, duration: 6000 });
     } finally {
       setDownloadingPdf(false);
     }
