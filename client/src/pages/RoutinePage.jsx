@@ -195,15 +195,34 @@ const RoutinePage = () => {
     const tid = toast.loading('Generating PDF (this might take a few seconds)...');
 
     try {
-      // Target the unscaled pure routine table element (excluding zoom toolbars, hints, and scrollbars)
+      // Target the unscaled pure routine table element
       const element = document.getElementById('routine-capture-target') || document.getElementById('routine-pdf-container');
       if (!element) throw new Error("Could not find the routine container.");
 
-      // Wait a moment to ensure DOM layout is stable
-      await new Promise(r => setTimeout(r, 100));
+      // Clone the element offscreen to capture it at 100% full scale with zero scrollbars
+      const clone = element.cloneNode(true);
+      clone.style.transform = 'none';
+      clone.style.width = 'max-content';
+      clone.style.minWidth = '960px';
+      clone.style.maxWidth = 'none';
+      clone.style.height = 'auto';
+      clone.style.overflow = 'visible';
+      clone.style.position = 'fixed';
+      clone.style.top = '-99999px';
+      clone.style.left = '-99999px';
+      clone.style.zIndex = '-9999';
+      clone.style.background = '#ffffff';
 
-      const captureWidth = element.scrollWidth || element.offsetWidth || 1000;
-      const captureHeight = element.scrollHeight || element.offsetHeight || 600;
+      // Ensure zero scrollbars or overflow clipping on all children
+      clone.querySelectorAll('*').forEach((el) => {
+        el.style.overflow = 'visible';
+      });
+
+      document.body.appendChild(clone);
+      await new Promise((r) => setTimeout(r, 100));
+
+      const captureWidth = clone.scrollWidth || 1000;
+      const captureHeight = clone.scrollHeight || 600;
 
       const scale = 2; // HD scale factor
       const style = {
@@ -211,25 +230,32 @@ const RoutinePage = () => {
         transformOrigin: 'top left',
         width: captureWidth + 'px',
         height: captureHeight + 'px',
-        overflow: 'visible'
+        overflow: 'visible',
       };
 
-      const imgData = await domtoimage.toJpeg(element, {
-        width: captureWidth * scale,
-        height: captureHeight * scale,
-        quality: 0.98,
-        bgcolor: '#ffffff',
-        filter: (node) => {
-          if (node.getAttribute && node.getAttribute('data-pdf-exclude') === 'true') return false;
-          if (node.classList && node.classList.contains('routine-zoom-toolbar')) return false;
-          return true;
-        },
-        style
-      });
+      let imgData;
+      try {
+        imgData = await domtoimage.toJpeg(clone, {
+          width: captureWidth * scale,
+          height: captureHeight * scale,
+          quality: 0.98,
+          bgcolor: '#ffffff',
+          filter: (node) => {
+            if (node.getAttribute && node.getAttribute('data-pdf-exclude') === 'true') return false;
+            if (node.classList && node.classList.contains('routine-zoom-toolbar')) return false;
+            return true;
+          },
+          style,
+        });
+      } finally {
+        if (clone && clone.parentNode) {
+          clone.parentNode.removeChild(clone);
+        }
+      }
 
       const img = new Image();
       img.src = imgData;
-      await new Promise(r => { img.onload = r; });
+      await new Promise((r) => { img.onload = r; });
 
       const pdfWidth = 1008;  // Legal height/width in points (14 inches)
       const pdfHeight = 612;  // Legal height/width in points (8.5 inches)

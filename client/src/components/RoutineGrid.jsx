@@ -941,7 +941,7 @@ function TeacherLegend({ teachers }) {
       </h3>
 
       {/* 2-Column Side-by-Side Teacher Table (all devices) */}
-      <div className="overflow-x-auto">
+      <div className="w-full">
         <table className="w-full text-[11px] border-collapse border border-slate-300 bg-white">
           <thead>
             <tr className="bg-slate-100 text-slate-900 text-center font-bold">
