@@ -291,8 +291,7 @@ function _solveCore(input, options = {}) {
   function courseRequiresDayGap(course) {
     const cpw = Number(course.derived_classes_per_week);
     const cr = Number(course.credit);
-    const isTarget = (cpw === 2 || cpw === 3 || cr === 2 || cr === 3);
-    return isTarget && cpw <= Math.ceil(workingDays.length / 2);
+    return (cpw === 2 || cpw === 3 || cr === 2 || cr === 3) && cpw <= 3;
   }
 
   const unavailMap = indexUnavailability(input.teacher_unavailability || []);
@@ -929,18 +928,17 @@ function _solveCore(input, options = {}) {
     for (const day of workingDays) {
       if (usedDays.has(day)) continue;
 
-      // ── 1-Day Gap Constraint for 2 & 3 Credit Courses (Hard Constraint) ──
-      if (courseRequiresDayGap(course) && usedDays.size > 0) {
-        const candIdx = dayIndexMap.get(day);
-        let gapSatisfied = true;
-        for (const ud of usedDays) {
-          const udIdx = dayIndexMap.get(ud);
-          if (Math.abs(candIdx - udIdx) < 2) {
-            gapSatisfied = false;
+      // ── Course Day Spacing Constraint: At most 2 consecutive days, then a gap (No 3 consecutive days) ──
+      if (courseRequiresDayGap(course) && usedDays.size > 0 && dayIndexMap.has(day)) {
+        const allIndices = [...usedDays, day].map((d) => dayIndexMap.get(d)).sort((a, b) => a - b);
+        let hasThreeConsecutive = false;
+        for (let k = 0; k < allIndices.length - 2; k++) {
+          if (allIndices[k + 1] === allIndices[k] + 1 && allIndices[k + 2] === allIndices[k] + 2) {
+            hasThreeConsecutive = true;
             break;
           }
         }
-        if (!gapSatisfied) continue;
+        if (hasThreeConsecutive) continue;
       }
 
       const daySlots = slotsForDayBy50[day];

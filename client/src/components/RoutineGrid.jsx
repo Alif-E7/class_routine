@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { getCourseColorClass } from '../utils/colors';
-import { AlertTriangle, CheckCircle2, GripVertical, Move, X, Ban } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, GripVertical, Move, X, Ban, ZoomIn, ZoomOut, Maximize2, Minimize2, RotateCcw } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 /**
@@ -274,6 +274,108 @@ const RoutineGrid = ({
     };
   }, [assignments, daysToRender, yearsToRender]);
 
+  // ── Responsive Zoom & Auto-Fit State ──────────────────────────────
+  const containerRef = useRef(null);
+  const tableRef = useRef(null);
+  const [zoomScale, setZoomScale] = useState(1);
+  const [fitScale, setFitScale] = useState(1);
+  const [tableDimensions, setTableDimensions] = useState({ width: 960, height: 600 });
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
+  const [isUserZoomed, setIsUserZoomed] = useState(false);
+
+  // Measure container and table dimensions to calculate optimal fitScale
+  useEffect(() => {
+    const updateDimensions = () => {
+      const isMobile = window.innerWidth < 1024;
+      setIsMobileDevice(isMobile);
+
+      if (containerRef.current && tableRef.current) {
+        const cWidth = containerRef.current.clientWidth;
+        const tWidth = tableRef.current.scrollWidth || 960;
+        const tHeight = tableRef.current.scrollHeight || 600;
+        setTableDimensions({ width: tWidth, height: tHeight });
+
+        if (cWidth > 0 && tWidth > 0) {
+          const calculatedFit = Math.min(1, Math.max(0.2, (cWidth - 8) / tWidth));
+          setFitScale(calculatedFit);
+
+          // If on mobile and user hasn't manually adjusted zoom, default to fit full view
+          if (isMobile && !isUserZoomed) {
+            setZoomScale(calculatedFit);
+          } else if (!isMobile && !isUserZoomed) {
+            setZoomScale(1);
+          }
+        }
+      }
+    };
+
+    updateDimensions();
+    window.addEventListener('resize', updateDimensions);
+    const resizeObserver = new ResizeObserver(updateDimensions);
+    if (tableRef.current) resizeObserver.observe(tableRef.current);
+    if (containerRef.current) resizeObserver.observe(containerRef.current);
+
+    return () => {
+      window.removeEventListener('resize', updateDimensions);
+      resizeObserver.disconnect();
+    };
+  }, [assignments, isUserZoomed]);
+
+  const handleZoomIn = () => {
+    setIsUserZoomed(true);
+    setZoomScale((prev) => Math.min(2.5, Math.round((prev + 0.15) * 100) / 100));
+  };
+
+  const handleZoomOut = () => {
+    setIsUserZoomed(true);
+    setZoomScale((prev) => Math.max(Math.min(fitScale, 0.25), Math.round((prev - 0.15) * 100) / 100));
+  };
+
+  const handleReset100 = () => {
+    setIsUserZoomed(true);
+    setZoomScale(1.0);
+  };
+
+  const handleFitToScreen = () => {
+    setIsUserZoomed(false);
+    setZoomScale(fitScale);
+  };
+
+  // Multi-touch pinch-to-zoom handlers
+  const touchStateRef = useRef({ initialDist: null, initialScale: 1 });
+
+  const handleTouchStart = (e) => {
+    if (e.touches.length === 2) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      touchStateRef.current = { initialDist: dist, initialScale: zoomScale };
+    }
+  };
+
+  const handleTouchMove = (e) => {
+    if (e.touches.length === 2 && touchStateRef.current.initialDist) {
+      const currentDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const factor = currentDist / touchStateRef.current.initialDist;
+      const newScale = Math.max(
+        Math.min(fitScale * 0.85, 0.2),
+        Math.min(2.5, touchStateRef.current.initialScale * factor)
+      );
+      setIsUserZoomed(true);
+      setZoomScale(Math.round(newScale * 100) / 100);
+    }
+  };
+
+  const handleTouchEnd = (e) => {
+    if (e.touches.length < 2) {
+      touchStateRef.current.initialDist = null;
+    }
+  };
+
   if (assignments.length === 0 || daysPresent.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-xl p-12 text-center text-slate-500">
@@ -325,268 +427,367 @@ const RoutineGrid = ({
 
   return (
     <div className="relative">
-      <div className="bg-white border border-blue-900 rounded-lg overflow-x-auto shadow-md font-sans touch-pan-x select-none mb-4">
-        {/* Mobile Horizontal Scroll Hint */}
-        <div className="md:hidden bg-sky-50 text-sky-900 text-xs px-3.5 py-2 border-b border-sky-200 flex items-center justify-between font-medium">
-          <span className="flex items-center gap-1.5 font-semibold text-[11px]">
-            <span>↔️ Swipe horizontally to view full timetable</span>
+      {/* ── Interactive Zoom Toolbar ── */}
+      <div className="bg-slate-900/90 backdrop-blur-md text-white rounded-2xl px-3.5 py-2 mb-3 shadow-lg border border-slate-700/60 flex flex-wrap items-center justify-between gap-2.5 transition-all">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider hidden sm:inline">
+            Routine Zoom:
           </span>
-          <span className="text-[10px] text-sky-700 bg-white px-2 py-0.5 rounded-full border border-sky-200 font-bold">
-            Tap slot for details
-          </span>
+          <div className="flex items-center bg-slate-800 border border-slate-700 rounded-xl p-0.5 shadow-inner">
+            <button
+              type="button"
+              onClick={handleFitToScreen}
+              className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                Math.abs(zoomScale - fitScale) < 0.02
+                  ? 'bg-sky-500 text-white shadow-xs'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+              }`}
+              title="পুরো রুটিন এক নজরে দেখতে ফিট করুন (Fit Full Overview)"
+            >
+              <Minimize2 className="w-3.5 h-3.5" />
+              <span>Fit ({Math.round(fitScale * 100)}%)</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleReset100}
+              className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                Math.abs(zoomScale - 1) < 0.02
+                  ? 'bg-sky-500 text-white shadow-xs'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+              }`}
+              title="১০০% স্বাভাবিক সাইজ (Actual Size 100%)"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span>100%</span>
+            </button>
+          </div>
         </div>
 
-        <table className="w-full border-collapse min-w-[900px] text-left">
-          <thead>
-            <tr>
-              <th
-                colSpan={totalCols}
-                className="bg-blue-900 text-white font-bold text-center py-2 sm:py-3 text-lg sm:text-2xl tracking-tight border-b-2 border-blue-950 px-2"
-              >
-                {header?.university || 'University'}
-              </th>
-            </tr>
-            <tr>
-              <th
-                colSpan={totalCols}
-                className="bg-blue-800 text-white font-semibold text-center py-1 sm:py-1.5 text-xs sm:text-base border-b border-blue-900 px-2"
-              >
-                {(() => {
-                  let dept = (header?.department || 'Department').trim();
-                  if (dept.includes(' — Faculty of ')) {
-                    dept = dept.split(' — Faculty of ')[0].trim();
-                  }
-                  if (/^Department of\s+/i.test(dept)) {
-                    dept = dept.replace(/^Department of\s+/i, '').trim();
-                  }
-                  return `Department of ${dept}`;
-                })()}
-                {formatHeaderSemester(header?.year, header?.semester)}
-              </th>
-            </tr>
-            <tr>
-              <th
-                rowSpan={2}
-                className="bg-blue-900 text-white font-bold text-center border-r border-blue-950 w-14 text-sm"
-              >
-                Day
-              </th>
-              <th
-                rowSpan={2}
-                className="bg-blue-900 text-white font-bold text-center border-r border-blue-950 w-24 text-sm"
-              >
-                Yr-Sm
-              </th>
-              {morning.map((slot, i) => (
-                <th
-                  key={`m-${i}`}
-                  className="bg-blue-700 text-white font-semibold text-center border-r border-blue-900 px-2 py-1 text-xs whitespace-nowrap"
-                >
-                  {slotLabel(slot.start, slot.end)}
-                </th>
-              ))}
-              {hasBreak && (
-                <th
-                  rowSpan={2}
-                  className="bg-yellow-300 text-blue-950 font-bold text-center border-l border-r border-yellow-500 w-8 text-xs"
-                  style={{ writingMode: 'vertical-rl' }}
-                >
-                  {`${breakStartStr} - ${breakEndStr}`}
-                </th>
-              )}
-              {afternoon.map((slot, i) => (
-                <th
-                  key={`a-${i}`}
-                  className="bg-blue-700 text-white font-semibold text-center border-r border-blue-900 px-2 py-1 text-xs whitespace-nowrap"
-                >
-                  {slotLabel(slot.start, slot.end)}
-                </th>
-              ))}
-            </tr>
-            <tr aria-hidden="true">
-              {slots.map((_, i) => (
-                <th key={`h-${i}`} className="hidden" />
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {daysPresent.map((day) => {
-              const activeRows = yearSemRows.filter(
-                (ys) => dayMap[day] && dayMap[day][ys]
-              );
-              if (activeRows.length === 0) return null;
-              return activeRows.map((ys, idx) => {
-                const isDifferentRowFromDragged = draggedEntry && draggedEntry.year_sem !== ys;
-                const isLastRowOfDay = idx === activeRows.length - 1;
-                const borderBottomClass = isLastRowOfDay ? 'border-b-2 border-blue-900' : 'border-b border-blue-900/30';
+        <div className="flex items-center gap-2">
+          <div className="flex items-center bg-slate-800 border border-slate-700 rounded-xl p-0.5 shadow-inner">
+            <button
+              type="button"
+              onClick={handleZoomOut}
+              disabled={zoomScale <= Math.min(fitScale * 0.85, 0.25)}
+              className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700/60 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              title="জুম আউট (Zoom Out)"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <span className="text-xs font-bold font-mono px-2.5 py-1 text-sky-300 select-none min-w-[50px] text-center">
+              {Math.round(zoomScale * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={handleZoomIn}
+              disabled={zoomScale >= 2.5}
+              className="p-1.5 text-slate-300 hover:text-white hover:bg-slate-700/60 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+              title="জুম ইন (Zoom In)"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+          </div>
 
-                return (
-                  <tr
-                    key={`${day}-${ys}`}
-                    className={`${idx % 2 === 0 ? 'bg-sky-50' : 'bg-white'} ${
-                      isDifferentRowFromDragged ? 'opacity-50 grayscale-20' : ''
-                    }`}
+          <button
+            type="button"
+            onClick={() => { setIsUserZoomed(false); setZoomScale(isMobileDevice ? fitScale : 1); }}
+            className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl border border-slate-700/60 transition-all cursor-pointer"
+            title="রিসেট করুন (Reset View)"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Main Scalable Table Container with Touch Pinch & 2D Pan Support ── */}
+      <div
+        ref={containerRef}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        className="bg-white border border-blue-900 rounded-2xl overflow-auto shadow-md font-sans select-none mb-4 max-w-full touch-pan-x touch-pan-y"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        {/* Mobile Pinch / Pan Hint */}
+        {zoomScale > fitScale && (
+          <div className="md:hidden bg-sky-50 text-sky-900 text-xs px-3.5 py-1.5 border-b border-sky-200 flex items-center justify-between font-medium">
+            <span className="flex items-center gap-1.5 font-semibold text-[11px]">
+              <span>↔️↕️ চারদিকে স্ক্রল / দুই আঙুলে পিঞ্চ করে জুম করুন</span>
+            </span>
+            <span className="text-[10px] text-sky-700 bg-white px-2 py-0.5 rounded-full border border-sky-200 font-bold">
+              {Math.round(zoomScale * 100)}%
+            </span>
+          </div>
+        )}
+
+        {/* Resizer wrapper adjusting scroll bounds dynamically to matched scaled dimensions */}
+        <div
+          style={{
+            width: tableDimensions.width ? `${Math.round(tableDimensions.width * zoomScale)}px` : '100%',
+            height: tableDimensions.height ? `${Math.round(tableDimensions.height * zoomScale)}px` : 'auto',
+            overflow: 'hidden',
+            position: 'relative',
+          }}
+        >
+          <div
+            ref={tableRef}
+            style={{
+              transform: `scale(${zoomScale})`,
+              transformOrigin: 'top left',
+              width: 'max-content',
+              minWidth: '960px',
+            }}
+          >
+            <table className="w-full border-collapse min-w-[960px] text-left">
+              <thead>
+                <tr>
+                  <th
+                    colSpan={totalCols}
+                    className="bg-blue-900 text-white font-bold text-center py-2 sm:py-3 text-lg sm:text-2xl tracking-tight border-b-2 border-blue-950 px-2"
                   >
-                    {idx === 0 && (
-                      <td
-                        rowSpan={activeRows.length}
-                        className="bg-blue-900 text-white font-extrabold text-center border-r border-b-2 border-blue-900 text-xs"
-                      >
-                        {day}
-                      </td>
-                    )}
-                    <td className={`font-bold text-center border-r ${borderBottomClass} text-xs px-2 ${
-                      draggedEntry && draggedEntry.year_sem === ys
-                        ? 'bg-amber-300 text-slate-950 ring-2 ring-amber-500 font-extrabold animate-pulse'
-                        : 'bg-slate-200 text-slate-900'
-                    }`}>
-                      {ys}
-                    </td>
-                    {morning.map((slot) => {
-                      const cell = dayMap[day]?.[ys]?.[slot.start];
-                      const isHovered = hoverTarget &&
-                        hoverTarget.day === day &&
-                        hoverTarget.ys === ys &&
-                        hoverTarget.slotStart === slot.start;
+                    {header?.university || 'University'}
+                  </th>
+                </tr>
+                <tr>
+                  <th
+                    colSpan={totalCols}
+                    className="bg-blue-800 text-white font-semibold text-center py-1 sm:py-1.5 text-xs sm:text-base border-b border-blue-900 px-2"
+                  >
+                    {(() => {
+                      let dept = (header?.department || 'Department').trim();
+                      if (dept.includes(' — Faculty of ')) {
+                        dept = dept.split(' — Faculty of ')[0].trim();
+                      }
+                      if (/^Department of\s+/i.test(dept)) {
+                        dept = dept.replace(/^Department of\s+/i, '').trim();
+                      }
+                      return `Department of ${dept}`;
+                    })()}
+                    {formatHeaderSemester(header?.year, header?.semester)}
+                  </th>
+                </tr>
+                <tr>
+                  <th
+                    rowSpan={2}
+                    className="bg-blue-900 text-white font-bold text-center border-r border-blue-950 w-14 text-sm"
+                  >
+                    Day
+                  </th>
+                  <th
+                    rowSpan={2}
+                    className="bg-blue-900 text-white font-bold text-center border-r border-blue-950 w-24 text-sm"
+                  >
+                    Yr-Sm
+                  </th>
+                  {morning.map((slot, i) => (
+                    <th
+                      key={`m-${i}`}
+                      className="bg-blue-700 text-white font-semibold text-center border-r border-blue-900 px-2 py-1 text-xs whitespace-nowrap"
+                    >
+                      {slotLabel(slot.start, slot.end)}
+                    </th>
+                  ))}
+                  {hasBreak && (
+                    <th
+                      rowSpan={2}
+                      className="bg-yellow-300 text-blue-950 font-bold text-center border-l border-r border-yellow-500 w-8 text-xs"
+                      style={{ writingMode: 'vertical-rl' }}
+                    >
+                      {`${breakStartStr} - ${breakEndStr}`}
+                    </th>
+                  )}
+                  {afternoon.map((slot, i) => (
+                    <th
+                      key={`a-${i}`}
+                      className="bg-blue-700 text-white font-semibold text-center border-r border-blue-900 px-2 py-1 text-xs whitespace-nowrap"
+                    >
+                      {slotLabel(slot.start, slot.end)}
+                    </th>
+                  ))}
+                </tr>
+                <tr aria-hidden="true">
+                  {slots.map((_, i) => (
+                    <th key={`h-${i}`} className="hidden" />
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {daysPresent.map((day) => {
+                  const activeRows = yearSemRows.filter(
+                    (ys) => dayMap[day] && dayMap[day][ys]
+                  );
+                  if (activeRows.length === 0) return null;
+                  return activeRows.map((ys, idx) => {
+                    const isDifferentRowFromDragged = draggedEntry && draggedEntry.year_sem !== ys;
+                    const isLastRowOfDay = idx === activeRows.length - 1;
+                    const borderBottomClass = isLastRowOfDay ? 'border-b-2 border-blue-900' : 'border-b border-blue-900/30';
 
-                      return (
-                        <td
-                          key={`m-${slot.start}`}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = 'move';
-                            if (!isHovered) {
-                              setHoverTarget({ day, ys, slotStart: slot.start, slotEnd: slot.end });
-                            }
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            handleDropCell({ day, ys, slotStart: slot.start, slotEnd: slot.end });
-                          }}
-                          className={`border-r ${borderBottomClass} p-0 align-stretch relative transition-all duration-150 ${
-                            isHovered && currentConflicts
-                              ? currentConflicts.hasConflict
-                                ? 'bg-red-500/30 border-2 border-red-600 ring-2 ring-red-400 shadow-lg z-30 cursor-not-allowed'
-                                : 'bg-emerald-500/30 border-2 border-emerald-600 ring-2 ring-emerald-400 shadow-lg z-30'
-                              : draggedEntry
-                              ? isDifferentRowFromDragged
-                                ? 'bg-slate-100/60 cursor-not-allowed'
-                                : 'hover:bg-sky-100/70'
-                              : ''
-                          }`}
-                        >
-                          {isHovered && currentConflicts && (
-                            <div
-                              className={`absolute -top-12 left-1/2 -translate-x-1/2 z-50 pointer-events-none px-3 py-1.5 rounded-lg shadow-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 animate-in zoom-in-95 duration-100 ${
-                                currentConflicts.hasConflict
-                                  ? 'bg-red-600 text-white ring-2 ring-red-300'
-                                  : 'bg-emerald-600 text-white ring-2 ring-emerald-300'
+                    return (
+                      <tr
+                        key={`${day}-${ys}`}
+                        className={`${idx % 2 === 0 ? 'bg-sky-50' : 'bg-white'} ${
+                          isDifferentRowFromDragged ? 'opacity-50 grayscale-20' : ''
+                        }`}
+                      >
+                        {idx === 0 && (
+                          <td
+                            rowSpan={activeRows.length}
+                            className="bg-blue-900 text-white font-extrabold text-center border-r border-b-2 border-blue-900 text-xs"
+                          >
+                            {day}
+                          </td>
+                        )}
+                        <td className={`font-bold text-center border-r ${borderBottomClass} text-xs px-2 ${
+                          draggedEntry && draggedEntry.year_sem === ys
+                            ? 'bg-amber-300 text-slate-950 ring-2 ring-amber-500 font-extrabold animate-pulse'
+                            : 'bg-slate-200 text-slate-900'
+                        }`}>
+                          {ys}
+                        </td>
+                        {morning.map((slot) => {
+                          const cell = dayMap[day]?.[ys]?.[slot.start];
+                          const isHovered = hoverTarget &&
+                            hoverTarget.day === day &&
+                            hoverTarget.ys === ys &&
+                            hoverTarget.slotStart === slot.start;
+
+                          return (
+                            <td
+                              key={`cell-m-${slot.start}`}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = 'move';
+                                if (!hoverTarget || hoverTarget.day !== day || hoverTarget.ys !== ys || hoverTarget.slotStart !== slot.start) {
+                                  setHoverTarget({ day, ys, slotStart: slot.start });
+                                }
+                              }}
+                              onDragLeave={() => {
+                                if (hoverTarget && hoverTarget.day === day && hoverTarget.ys === ys && hoverTarget.slotStart === slot.start) {
+                                  setHoverTarget(null);
+                                }
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                handleDropCell({ day, ys, slotStart: slot.start });
+                              }}
+                              className={`p-0 border-r ${borderBottomClass} align-middle relative transition-colors ${
+                                isHovered
+                                  ? currentConflicts?.hasConflict
+                                    ? 'bg-red-200/90 ring-2 ring-red-500 z-10'
+                                    : 'bg-emerald-200/90 ring-2 ring-emerald-500 z-10'
+                                  : ''
                               }`}
                             >
-                              {currentConflicts.isDifferentRow ? (
-                                <>
-                                  <Ban className="w-4 h-4 shrink-0 text-amber-200" />
-                                  <span>❌ শুধুমাত্র একই সেমিস্টার সারিতে ({draggedEntry.year_sem}) ড্র্যাগ করা সম্ভব</span>
-                                </>
-                              ) : currentConflicts.hasConflict ? (
-                                <>
-                                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-200" />
-                                  <span>⚠️ কনফ্লিক্ট লাল সতর্কবার্তা ({currentConflicts.reasons.length})</span>
-                                </>
-                              ) : (
-                                <>
-                                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-200" />
-                                  <span>✓ নিরাপদ স্লট (Safe Slot)</span>
-                                </>
+                              {isHovered && currentConflicts && (
+                                <div
+                                  className={`absolute -top-12 left-1/2 -translate-x-1/2 z-50 pointer-events-none px-3 py-1.5 rounded-lg shadow-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 animate-in zoom-in-95 duration-100 ${
+                                    currentConflicts.hasConflict
+                                      ? 'bg-red-600 text-white ring-2 ring-red-300'
+                                      : 'bg-emerald-600 text-white ring-2 ring-emerald-300'
+                                  }`}
+                                >
+                                  {currentConflicts.isDifferentRow ? (
+                                    <>
+                                      <Ban className="w-4 h-4 shrink-0 text-amber-200" />
+                                      <span>❌ শুধুমাত্র একই সেমিস্টার সারিতে ({draggedEntry.year_sem}) ড্র্যাগ করা সম্ভব</span>
+                                    </>
+                                  ) : currentConflicts.hasConflict ? (
+                                    <>
+                                      <AlertTriangle className="w-4 h-4 shrink-0 text-amber-200" />
+                                      <span>⚠️ কনফ্লিক্ট লাল সতর্কবার্তা ({currentConflicts.reasons.length})</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-200" />
+                                      <span>✓ নিরাপদ স্লট (Safe Slot)</span>
+                                    </>
+                                  )}
+                                </div>
                               )}
-                            </div>
-                          )}
-                          {renderCell(cell, onCellClick, setDraggedEntry)}
-                        </td>
-                      );
-                    })}
+                              {renderCell(cell, onCellClick, setDraggedEntry)}
+                            </td>
+                          );
+                        })}
+                        {hasBreak && idx === 0 && (
+                          <td
+                            rowSpan={activeRows.length}
+                            className="bg-yellow-100/70 border-l border-r border-b-2 border-yellow-400/80 p-0 text-center"
+                          />
+                        )}
+                        {afternoon.map((slot) => {
+                          const cell = dayMap[day]?.[ys]?.[slot.start];
+                          const isHovered = hoverTarget &&
+                            hoverTarget.day === day &&
+                            hoverTarget.ys === ys &&
+                            hoverTarget.slotStart === slot.start;
 
-                    {hasBreak && idx === 0 && (
-                      <td
-                        rowSpan={activeRows.length}
-                        className="bg-yellow-200 text-blue-950 font-extrabold text-center border-l border-r border-yellow-500 border-b-2 border-blue-900 w-8 text-xs"
-                        style={{ writingMode: 'vertical-rl', textOrientation: 'upright' }}
-                      >
-                        BREAK
-                      </td>
-                    )}
-
-                    {afternoon.map((slot) => {
-                      const cell = dayMap[day]?.[ys]?.[slot.start];
-                      const isHovered = hoverTarget &&
-                        hoverTarget.day === day &&
-                        hoverTarget.ys === ys &&
-                        hoverTarget.slotStart === slot.start;
-
-                      return (
-                        <td
-                          key={`a-${slot.start}`}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = 'move';
-                            if (!isHovered) {
-                              setHoverTarget({ day, ys, slotStart: slot.start, slotEnd: slot.end });
-                            }
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            handleDropCell({ day, ys, slotStart: slot.start, slotEnd: slot.end });
-                          }}
-                          className={`border-r ${borderBottomClass} p-0 align-stretch relative transition-all duration-150 ${
-                            isHovered && currentConflicts
-                              ? currentConflicts.hasConflict
-                                ? 'bg-red-500/30 border-2 border-red-600 ring-2 ring-red-400 shadow-lg z-30 cursor-not-allowed'
-                                : 'bg-emerald-500/30 border-2 border-emerald-600 ring-2 ring-emerald-400 shadow-lg z-30'
-                              : draggedEntry
-                              ? isDifferentRowFromDragged
-                                ? 'bg-slate-100/60 cursor-not-allowed'
-                                : 'hover:bg-sky-100/70'
-                              : ''
-                          }`}
-                        >
-                          {isHovered && currentConflicts && (
-                            <div
-                              className={`absolute -top-12 left-1/2 -translate-x-1/2 z-50 pointer-events-none px-3 py-1.5 rounded-lg shadow-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 animate-in zoom-in-95 duration-100 ${
-                                currentConflicts.hasConflict
-                                  ? 'bg-red-600 text-white ring-2 ring-red-300'
-                                  : 'bg-emerald-600 text-white ring-2 ring-emerald-300'
+                          return (
+                            <td
+                              key={`cell-a-${slot.start}`}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = 'move';
+                                if (!hoverTarget || hoverTarget.day !== day || hoverTarget.ys !== ys || hoverTarget.slotStart !== slot.start) {
+                                  setHoverTarget({ day, ys, slotStart: slot.start });
+                                }
+                              }}
+                              onDragLeave={() => {
+                                if (hoverTarget && hoverTarget.day === day && hoverTarget.ys === ys && hoverTarget.slotStart === slot.start) {
+                                  setHoverTarget(null);
+                                }
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                handleDropCell({ day, ys, slotStart: slot.start });
+                              }}
+                              className={`p-0 border-r ${borderBottomClass} align-middle relative transition-colors ${
+                                isHovered
+                                  ? currentConflicts?.hasConflict
+                                    ? 'bg-red-200/90 ring-2 ring-red-500 z-10'
+                                    : 'bg-emerald-200/90 ring-2 ring-emerald-500 z-10'
+                                  : ''
                               }`}
                             >
-                              {currentConflicts.isDifferentRow ? (
-                                <>
-                                  <Ban className="w-4 h-4 shrink-0 text-amber-200" />
-                                  <span>❌ শুধুমাত্র একই সেমিস্টার সারিতে ({draggedEntry.year_sem}) ড্র্যাগ করা সম্ভব</span>
-                                </>
-                              ) : currentConflicts.hasConflict ? (
-                                <>
-                                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-200" />
-                                  <span>⚠️ কনফ্লিক্ট লাল সতর্কবার্তা ({currentConflicts.reasons.length})</span>
-                                </>
-                              ) : (
-                                <>
-                                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-200" />
-                                  <span>✓ নিরাপদ স্লট (Safe Slot)</span>
-                                </>
+                              {isHovered && currentConflicts && (
+                                <div
+                                  className={`absolute -top-12 left-1/2 -translate-x-1/2 z-50 pointer-events-none px-3 py-1.5 rounded-lg shadow-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 animate-in zoom-in-95 duration-100 ${
+                                    currentConflicts.hasConflict
+                                      ? 'bg-red-600 text-white ring-2 ring-red-300'
+                                      : 'bg-emerald-600 text-white ring-2 ring-emerald-300'
+                                  }`}
+                                >
+                                  {currentConflicts.isDifferentRow ? (
+                                    <>
+                                      <Ban className="w-4 h-4 shrink-0 text-amber-200" />
+                                      <span>❌ শুধুমাত্র একই সেমিস্টার সারিতে ({draggedEntry.year_sem}) ড্র্যাগ করা সম্ভব</span>
+                                    </>
+                                  ) : currentConflicts.hasConflict ? (
+                                    <>
+                                      <AlertTriangle className="w-4 h-4 shrink-0 text-amber-200" />
+                                      <span>⚠️ কনফ্লিক্ট লাল সতর্কবার্তা ({currentConflicts.reasons.length})</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-200" />
+                                      <span>✓ নিরাপদ স্লট (Safe Slot)</span>
+                                    </>
+                                  )}
+                                </div>
                               )}
-                            </div>
-                          )}
-                          {renderCell(cell, onCellClick, setDraggedEntry)}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              });
-            })}
-          </tbody>
-        </table>
+                              {renderCell(cell, onCellClick, setDraggedEntry)}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  });
+                })}
+              </tbody>
+            </table>
 
-        {teachers.length > 0 && <TeacherLegend teachers={teachers} />}
+            {teachers.length > 0 && <TeacherLegend teachers={teachers} />}
+          </div>
+        </div>
       </div>
 
       {/* Force Move Confirmation Modal */}
