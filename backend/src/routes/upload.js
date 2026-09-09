@@ -14,27 +14,51 @@ const { buildLookup, deriveForCourse, DeriveRulesError } = require('../services/
 const { explainUploadIssues } = require('../services/aiProvider');
 const { getPool, withTransaction } = require('../db/pool');
 
+function resolveContentsFile(fileCandidates) {
+  const candidateDirs = [
+    path.resolve(__dirname, '../../contents'),
+    path.resolve(__dirname, '../../../contents'),
+    path.resolve(process.cwd(), 'contents'),
+    path.resolve(process.cwd(), 'backend/contents'),
+  ];
+
+  for (const dir of candidateDirs) {
+    if (!fs.existsSync(dir)) continue;
+
+    for (const name of fileCandidates) {
+      const fullPath = path.join(dir, name);
+      if (fs.existsSync(fullPath)) return fullPath;
+    }
+
+    try {
+      const allFiles = fs.readdirSync(dir);
+      // Case-insensitive match or match containing routine
+      const match = allFiles.find(f => fileCandidates.some(c => f.toLowerCase() === c.toLowerCase()))
+        || allFiles.find(f => f.toLowerCase().endsWith('.xlsx') && f.toLowerCase().includes('routine'))
+        || allFiles.find(f => f.toLowerCase().endsWith('.xlsx'));
+      if (match) return path.join(dir, match);
+    } catch (_) {}
+  }
+  return null;
+}
+
 // GET /api/upload/template.xlsx — download pre-populated routine template from backend/contents
-router.get('/template.xlsx', (_req, res, next) => {
+router.get(['/template.xlsx', '/template', '/Routine_Template.xlsx', '/download-template'], (_req, res, next) => {
   try {
-    const contentsDir = path.resolve(__dirname, '../../contents');
-    let templatePath = path.join(contentsDir, 'Routine_template.xlsx');
-    if (!fs.existsSync(templatePath)) {
-      templatePath = path.join(contentsDir, 'Routine_Template.xlsx');
-    }
-    if (!fs.existsSync(templatePath)) {
-      const allFiles = fs.readdirSync(contentsDir);
-      const match = allFiles.find(f => f.toLowerCase().endsWith('.xlsx') && f.toLowerCase().includes('routine'));
-      if (match) {
-        templatePath = path.join(contentsDir, match);
-      }
-    }
-    if (!fs.existsSync(templatePath)) {
+    const templateCandidates = [
+      'Routine_Template.xlsx',
+      'Routine_template.xlsx',
+      'Routine_ Template.xlsx',
+      'routine_template.xlsx',
+      'routine.xlsx',
+    ];
+    const templatePath = resolveContentsFile(templateCandidates);
+    if (!templatePath || !fs.existsSync(templatePath)) {
       return res.status(404).json({ success: false, message: 'Template file not found' });
     }
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename="Routine_template.xlsx"');
-    return res.sendFile(templatePath);
+    res.setHeader('Content-Disposition', 'attachment; filename="Routine_Template.xlsx"');
+    return res.sendFile(path.resolve(templatePath));
   } catch (err) {
     next(err);
   }
@@ -43,8 +67,12 @@ router.get('/template.xlsx', (_req, res, next) => {
 // GET /api/upload/manual — return filling manual markdown content from backend/contents
 router.get('/manual', (_req, res, next) => {
   try {
-    const manualPath = path.resolve(__dirname, '../../contents/Routine_Template_Manual_Bangla.md');
-    if (!fs.existsSync(manualPath)) {
+    const manualPath = resolveContentsFile([
+      'Routine_Template_Manual_Bangla.md',
+      'routine_template_manual_bangla.md',
+      'manual.md',
+    ]);
+    if (!manualPath || !fs.existsSync(manualPath)) {
       return res.status(404).json({ success: false, message: 'Manual file not found' });
     }
     const content = fs.readFileSync(manualPath, 'utf8');
@@ -57,12 +85,16 @@ router.get('/manual', (_req, res, next) => {
 // GET /api/upload/manual.md — return raw markdown file from backend/contents
 router.get('/manual.md', (_req, res, next) => {
   try {
-    const manualPath = path.resolve(__dirname, '../../contents/Routine_Template_Manual_Bangla.md');
-    if (!fs.existsSync(manualPath)) {
+    const manualPath = resolveContentsFile([
+      'Routine_Template_Manual_Bangla.md',
+      'routine_template_manual_bangla.md',
+      'manual.md',
+    ]);
+    if (!manualPath || !fs.existsSync(manualPath)) {
       return res.status(404).json({ success: false, message: 'Manual file not found' });
     }
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
-    return res.sendFile(manualPath);
+    return res.sendFile(path.resolve(manualPath));
   } catch (err) {
     next(err);
   }

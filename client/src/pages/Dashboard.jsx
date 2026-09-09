@@ -108,18 +108,16 @@ const Dashboard = () => {
           Uploads update the class routine for the departments present in your Excel file.
           If a semester (e.g. <em>January-July 2025</em>) already exists, uploading will add/update the department in that semester without creating duplicates.{' '}
           <button
-            className="underline text-amber-700 hover:text-amber-900 font-semibold"
+            className="underline text-amber-700 hover:text-amber-900 font-semibold cursor-pointer"
             onClick={async () => {
               const { templateApi } = await import('../api/client');
               const id = toast.loading('Preparing template...');
               try {
-                const res = await templateApi.download();
-                const url = window.URL.createObjectURL(new Blob([res.data]));
-                const a = document.createElement('a'); a.href = url;
-                a.download = 'Routine_Template.xlsx'; a.click();
-                window.URL.revokeObjectURL(url);
+                await templateApi.downloadTemplate();
                 toast.success('Template downloaded.', { id });
-              } catch { toast.error('Download failed.', { id }); }
+              } catch (err) {
+                toast.error(err.message || 'Download failed.', { id });
+              }
             }}
           >
             Download Template ↓

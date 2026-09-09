@@ -24,8 +24,7 @@ import FloatingAiChat from '../components/FloatingAiChat';
 import CourseDetailModal from '../components/CourseDetailModal';
 import RoutineFilterBar from '../components/RoutineFilterBar';
 import AddToClassRoutineModal from '../components/AddToClassRoutineModal';
-import domtoimage from 'dom-to-image-more';
-import { jsPDF } from 'jspdf';
+import DownloadPdfButton from '../components/DownloadPdfButton';
 
 /**
  * RoutinePage — view / re-generate the routine for one upload batch.
@@ -181,122 +180,6 @@ const RoutinePage = () => {
     }
   };
 
-  const [downloading, setDownloading] = useState(null); // 'docx' | 'pdf' | null
-
-
-
-  const handleDownload = async () => {
-    if (!hasSchedule) {
-      toast.error('Generate the routine first.');
-      return;
-    }
-
-    setDownloading('pdf');
-    const tid = toast.loading('Generating PDF (this might take a few seconds)...');
-
-    try {
-      // Target the unscaled pure routine table element
-      const element = document.getElementById('routine-capture-target') || document.getElementById('routine-pdf-container');
-      if (!element) throw new Error("Could not find the routine container.");
-
-      // Clone the element offscreen to capture it at 100% full scale with zero scrollbars
-      const clone = element.cloneNode(true);
-      clone.style.transform = 'none';
-      clone.style.width = 'max-content';
-      clone.style.minWidth = '960px';
-      clone.style.maxWidth = 'none';
-      clone.style.height = 'auto';
-      clone.style.overflow = 'visible';
-      clone.style.position = 'fixed';
-      clone.style.top = '-99999px';
-      clone.style.left = '-99999px';
-      clone.style.zIndex = '-9999';
-      clone.style.background = '#ffffff';
-
-      // Ensure zero scrollbars or overflow clipping on all children
-      clone.querySelectorAll('*').forEach((el) => {
-        el.style.overflow = 'visible';
-      });
-
-      document.body.appendChild(clone);
-      await new Promise((r) => setTimeout(r, 100));
-
-      const captureWidth = clone.scrollWidth || 1000;
-      const captureHeight = clone.scrollHeight || 600;
-
-      const scale = 2; // HD scale factor
-      const style = {
-        transform: `scale(${scale})`,
-        transformOrigin: 'top left',
-        width: captureWidth + 'px',
-        height: captureHeight + 'px',
-        overflow: 'visible',
-      };
-
-      let imgData;
-      try {
-        imgData = await domtoimage.toJpeg(clone, {
-          width: captureWidth * scale,
-          height: captureHeight * scale,
-          quality: 0.98,
-          bgcolor: '#ffffff',
-          filter: (node) => {
-            if (node.getAttribute && node.getAttribute('data-pdf-exclude') === 'true') return false;
-            if (node.classList && node.classList.contains('routine-zoom-toolbar')) return false;
-            return true;
-          },
-          style,
-        });
-      } finally {
-        if (clone && clone.parentNode) {
-          clone.parentNode.removeChild(clone);
-        }
-      }
-
-      const img = new Image();
-      img.src = imgData;
-      await new Promise((r) => { img.onload = r; });
-
-      const pdfWidth = 1008;  // Legal height/width in points (14 inches)
-      const pdfHeight = 612;  // Legal height/width in points (8.5 inches)
-      const margin = 36;      // 0.5 inch margin in points
-      const maxWidth = pdfWidth - margin * 2;
-      const maxHeight = pdfHeight - margin * 2;
-
-      let printWidth = img.width;
-      let printHeight = img.height;
-      const ratio = printWidth / printHeight;
-      const maxRatio = maxWidth / maxHeight;
-
-      if (ratio > maxRatio) {
-        printWidth = maxWidth;
-        printHeight = maxWidth / ratio;
-      } else {
-        printHeight = maxHeight;
-        printWidth = maxHeight * ratio;
-      }
-
-      const x = (pdfWidth - printWidth) / 2;
-      const y = (pdfHeight - printHeight) / 2;
-
-      const pdf = new jsPDF({
-        orientation: 'landscape',
-        unit: 'pt',
-        format: 'legal'
-      });
-
-      pdf.addImage(imgData, 'JPEG', x, y, printWidth, printHeight);
-      pdf.save(`${batch?.filename || 'routine'}.pdf`);
-
-      toast.success('Downloaded PDF successfully!', { id: tid });
-    } catch (err) {
-      console.error('PDF Generation Error:', err);
-      toast.error(`Error: ${err.message || 'Failed to generate PDF.'}`, { id: tid, duration: 6000 });
-    } finally {
-      setDownloading(null);
-    }
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64 text-ocean-600">
@@ -384,19 +267,10 @@ const RoutinePage = () => {
           </div>
         </div>
         <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto">
-          <button
-            onClick={handleDownload}
-            disabled={!hasSchedule || downloading != null || generating}
-            className="w-full sm:w-auto bg-white/10 hover:bg-white/20 active:bg-white/30 text-white px-3 sm:px-3.5 py-2.5 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed min-h-[42px] sm:min-h-0"
-            title={hasSchedule ? 'Download as .pdf' : 'Generate the routine first'}
-          >
-            {downloading === 'pdf' ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <FileDown className="w-4 h-4" />
-            )}
-            Download PDF
-          </button>
+          <DownloadPdfButton
+            filename={batch?.filename || 'routine'}
+            disabled={!hasSchedule || generating}
+          />
           <button
             onClick={handleGenerate}
             disabled={generating}

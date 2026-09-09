@@ -238,6 +238,17 @@ export const masterApi = {
 export const templateApi = {
   download: () => api.get('/upload/template.xlsx', { responseType: 'blob' }),
   getManual: () => api.get('/upload/manual'),
+  async downloadTemplate(defaultFilename = 'Routine_Template.xlsx') {
+    const res = await api.get('/upload/template.xlsx', { responseType: 'blob' });
+    const filename = parseFilename(res.headers?.['content-disposition']) || defaultFilename;
+    const blob = res.data instanceof Blob
+      ? res.data
+      : new Blob([res.data], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        });
+    saveBlob(blob, filename);
+    return { filename, size: blob.size };
+  },
 };
 
 export default api;

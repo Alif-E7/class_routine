@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { UploadCloud, CheckCircle2, AlertCircle, AlertTriangle, Loader2 } from 'lucide-react';
-import { routineApi } from '../api/client';
+import { UploadCloud, CheckCircle2, AlertCircle, AlertTriangle, Loader2, Download } from 'lucide-react';
+import { routineApi, templateApi } from '../api/client';
 import toast from 'react-hot-toast';
 
 // Format a single linter violation as a one-line, high-signal toast message.
@@ -15,6 +15,21 @@ const FileUpload = ({ onUploadSuccess }) => {
   const [departmentCode, setDepartmentCode] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [isLinting, setIsLinting] = useState(false);
+  const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
+
+  const handleDownloadTemplate = async () => {
+    setIsDownloadingTemplate(true);
+    const tid = toast.loading('Downloading routine template...');
+    try {
+      await templateApi.downloadTemplate();
+      toast.success('Routine template downloaded successfully!', { id: tid });
+    } catch (err) {
+      console.error('Template download error:', err);
+      toast.error(err.message || 'Failed to download template.', { id: tid });
+    } finally {
+      setIsDownloadingTemplate(false);
+    }
+  };
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -131,7 +146,23 @@ const FileUpload = ({ onUploadSuccess }) => {
 
   return (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-      <h3 className="text-lg font-semibold text-slate-800 mb-4">Upload New Routine</h3>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <h3 className="text-lg font-semibold text-slate-800">Upload New Routine</h3>
+        <button
+          type="button"
+          onClick={handleDownloadTemplate}
+          disabled={isDownloadingTemplate}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 font-medium text-xs rounded-lg border border-sky-200 transition-colors cursor-pointer self-start sm:self-auto disabled:opacity-60"
+          title="Download sample pre-filled Excel workbook template"
+        >
+          {isDownloadingTemplate ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Download className="w-3.5 h-3.5" />
+          )}
+          Download Template (.xlsx)
+        </button>
+      </div>
       
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -187,7 +218,19 @@ const FileUpload = ({ onUploadSuccess }) => {
                 <UploadCloud className="w-8 h-8" />
               </div>
               <p className="font-medium text-slate-700">Click or drag Excel file to upload</p>
-              <p className="text-sm text-slate-500">Must follow the standard template format</p>
+              <p className="text-sm text-slate-500">
+                Must follow standard template format ·{' '}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDownloadTemplate();
+                  }}
+                  className="text-sky-600 hover:text-sky-800 underline font-semibold cursor-pointer"
+                >
+                  Download Template (.xlsx)
+                </button>
+              </p>
             </div>
           )}
         </div>

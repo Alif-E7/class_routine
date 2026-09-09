@@ -212,6 +212,21 @@ const UploadPage = () => {
   const [uploading, setUploading] = useState(false);
   const [success, setSuccess] = useState(null);   // { batch_id, counts, warnings }
   const [validation, setValidation] = useState(null); // { errors, warnings, batch_id, ai_hints }
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
+
+  const handleDownloadTemplate = async () => {
+    setDownloadingTemplate(true);
+    const tid = toast.loading('Downloading routine template...');
+    try {
+      await templateApi.downloadTemplate();
+      toast.success('Routine template downloaded successfully!', { id: tid });
+    } catch (err) {
+      console.error('Template download error:', err);
+      toast.error(err.message || 'Failed to download template.', { id: tid });
+    } finally {
+      setDownloadingTemplate(false);
+    }
+  };
 
   const handleDragOver = (e) => { e.preventDefault(); };
   const handleDrop = (e) => {
@@ -304,15 +319,20 @@ const UploadPage = () => {
         </div>
 
         {/* Download Routine Template Button */}
-        <a
-          href="/api/upload/template.xlsx"
-          download="Routine_Template.xlsx"
-          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md transition-all shrink-0 cursor-pointer min-h-[42px] sm:min-h-0"
+        <button
+          type="button"
+          onClick={handleDownloadTemplate}
+          disabled={downloadingTemplate}
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 sm:py-2 bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white font-bold text-xs rounded-xl shadow-md transition-all shrink-0 cursor-pointer min-h-[42px] sm:min-h-0 disabled:opacity-60"
           title="Download sample pre-filled 9-sheet Excel workbook template"
         >
-          <Download className="w-4 h-4" />
+          {downloadingTemplate ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Download className="w-4 h-4" />
+          )}
           Download Template (.xlsx)
-        </a>
+        </button>
       </div>
 
       {/* ── Bangla Upload Manual Collapsible Section ── */}
