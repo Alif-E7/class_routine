@@ -59,8 +59,8 @@ router.post('/login', async (req, res, next) => {
     }
 
     // 2. Secure env fallback (compares hashed input with env credentials hashed on the fly)
-    const envAdminEmail = process.env.ADMIN_EMAIL || 'cse_admin@gstu.edu.bd';
-    const envAdminPassword = process.env.ADMIN_PASSWORD || 'cse_admin13579';
+    const envAdminEmail = process.env.ADMIN_EMAIL || 'admin@routine.local';
+    const envAdminPassword = process.env.ADMIN_PASSWORD || 'admin12345';
 
     if (email === envAdminEmail && inputHash === hashPassword(envAdminPassword)) {
       const token = generateToken({ id: 1, email: envAdminEmail, role: 'admin' });

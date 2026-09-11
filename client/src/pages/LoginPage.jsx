@@ -85,7 +85,7 @@ const LoginPage = () => {
                 type="email"
                 required
                 autoComplete="email"
-                placeholder="cse_admin@gstu.edu.bd"
+                placeholder="admin@routine.local"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-600 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/40 transition-all"

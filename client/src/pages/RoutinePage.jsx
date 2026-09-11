@@ -23,8 +23,6 @@ import RoutineGrid from '../components/RoutineGrid';
 import FloatingAiChat from '../components/FloatingAiChat';
 import CourseDetailModal from '../components/CourseDetailModal';
 import RoutineFilterBar from '../components/RoutineFilterBar';
-import AddToClassRoutineModal from '../components/AddToClassRoutineModal';
-import DownloadPdfButton from '../components/DownloadPdfButton';
 import ExportRoutineDropdown from '../components/ExportRoutineDropdown';
 import { exportRoutineToCsv } from '../utils/csvExport';
 
@@ -49,7 +47,7 @@ const RoutinePage = () => {
   const [config, setConfig] = useState(null);
   const [score, setScore] = useState(null);
   const [teachers, setTeachers] = useState([]);
-  const [showAddToClassRoutineModal, setShowAddToClassRoutineModal] = useState(false);  const [header, setHeader] = useState({
+  const [header, setHeader] = useState({
     university: 'University Name',
     department: 'Department',
     semester: '',
@@ -354,28 +352,6 @@ const RoutinePage = () => {
         />
       )}
 
-      {/* ── Add to Class Routine — between filter bar and grid ── */}
-      {hasSchedule && (
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-gradient-to-r from-sky-50 to-indigo-50 border border-sky-200/60 rounded-2xl p-3.5 sm:px-4 sm:py-3 shadow-xs">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-400 to-indigo-600 flex items-center justify-center shadow-sm shrink-0">
-              <BookmarkPlus className="w-4 h-4 text-white" />
-            </div>
-            <div>
-              <p className="text-xs sm:text-sm font-bold text-slate-800 leading-tight">Publish to Class Routines</p>
-              <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">Make this routine available on the public Class Routines homepage</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowAddToClassRoutineModal(true)}
-            disabled={generating}
-            className="w-full sm:w-auto shrink-0 flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 active:from-sky-600 active:to-indigo-700 text-white text-xs font-bold rounded-xl shadow-md transition-all disabled:opacity-50 min-h-[42px] sm:min-h-0"
-          >
-            <BookmarkPlus className="w-3.5 h-3.5" />
-            Add to Class Routine
-          </button>
-        </div>
-      )}
 
       {/* Routine grid */}
       <div id="routine-pdf-container">
@@ -430,20 +406,7 @@ const RoutinePage = () => {
         />
       )}
 
-      {/* Add to Class Routine Modal */}
-      {showAddToClassRoutineModal && (
-        <AddToClassRoutineModal
-          batchId={batchId}
-          defaultDepartment={config?.department || (header?.department !== 'Department' ? header.department : '') || (batch?.semester || '')}
-          defaultFaculty={config?.faculty || batch?.faculty || ''}
-          defaultYear={config?.year || batch?.year || ''}
-          defaultTerm={config?.semester || batch?.semester || ''}
-          onClose={() => setShowAddToClassRoutineModal(false)}
-          onSuccess={() => {
-            setShowAddToClassRoutineModal(false);
-          }}
-        />
-      )}
+
     </div>
   );
 };
