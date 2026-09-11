@@ -79,8 +79,24 @@ const RoutinePage = () => {
 
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [downloadingDocx, setDownloadingDocx] = useState(false);
   const [error, setError] = useState(null);
   const [friendlyHint, setFriendlyHint] = useState(null);
+
+  const handleDownloadDocx = async () => {
+    if (!batchId) return;
+    setDownloadingDocx(true);
+    const tid = toast.loading('Generating Word (.docx) document…');
+    try {
+      await exportApi.downloadDocx(batchId);
+      toast.success('Word document (.docx) downloaded successfully!', { id: tid });
+    } catch (err) {
+      console.error('DOCX export error:', err);
+      toast.error(err.message || 'Failed to download Word document.', { id: tid });
+    } finally {
+      setDownloadingDocx(false);
+    }
+  };
 
   const loadRoutine = useCallback(async () => {
     setLoading(true);
@@ -279,6 +295,20 @@ const RoutinePage = () => {
             <span className="hidden sm:inline-block bg-emerald-700/80 text-[10px] font-bold px-1.5 py-0.5 rounded text-emerald-100">
               Notification Ready
             </span>
+          </button>
+          <button
+            type="button"
+            onClick={handleDownloadDocx}
+            disabled={!hasSchedule || generating || downloadingDocx}
+            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white px-3.5 sm:px-4 py-2.5 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-10.5 sm:min-h-0 shadow-xs border border-blue-400/30"
+            title="Download Word Document (.docx)"
+          >
+            {downloadingDocx ? (
+              <Loader2 className="w-4 h-4 animate-spin text-blue-200" />
+            ) : (
+              <FileText className="w-4 h-4 text-blue-200" />
+            )}
+            <span>{downloadingDocx ? 'Generating…' : 'Download DOCS'}</span>
           </button>
           <ExportRoutineDropdown
             batchId={batchId}
