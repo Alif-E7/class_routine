@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   FileText,
   FileDown,
-  FileSpreadsheet,
   MessageSquareText,
   ChevronDown,
   ChevronUp,
@@ -24,7 +23,6 @@ import FloatingAiChat from '../components/FloatingAiChat';
 import CourseDetailModal from '../components/CourseDetailModal';
 import RoutineFilterBar from '../components/RoutineFilterBar';
 import ExportRoutineDropdown from '../components/ExportRoutineDropdown';
-import { exportRoutineToCsv } from '../utils/csvExport';
 
 /**
  * RoutinePage — view / re-generate the routine for one upload batch.
@@ -79,24 +77,8 @@ const RoutinePage = () => {
 
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
-  const [downloadingDocx, setDownloadingDocx] = useState(false);
   const [error, setError] = useState(null);
   const [friendlyHint, setFriendlyHint] = useState(null);
-
-  const handleDownloadDocx = async () => {
-    if (!batchId) return;
-    setDownloadingDocx(true);
-    const tid = toast.loading('Generating Word (.docx) document…');
-    try {
-      await exportApi.downloadDocx(batchId);
-      toast.success('Word document (.docx) downloaded successfully!', { id: tid });
-    } catch (err) {
-      console.error('DOCX export error:', err);
-      toast.error(err.message || 'Failed to download Word document.', { id: tid });
-    } finally {
-      setDownloadingDocx(false);
-    }
-  };
 
   const loadRoutine = useCallback(async () => {
     setLoading(true);
@@ -283,33 +265,6 @@ const RoutinePage = () => {
           </div>
         </div>
         <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto">
-          <button
-            type="button"
-            onClick={() => exportRoutineToCsv({ assignments, teachers, filename: batch?.filename || 'routine' })}
-            disabled={!hasSchedule || generating}
-            className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white px-3.5 sm:px-4 py-2.5 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-10.5 sm:min-h-0 shadow-xs border border-emerald-400/30"
-            title="Download Tabular CSV (1-click export for class notifications & spreadsheets)"
-          >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
-            <span>Download CSV</span>
-            <span className="hidden sm:inline-block bg-emerald-700/80 text-[10px] font-bold px-1.5 py-0.5 rounded text-emerald-100">
-              Notification Ready
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={handleDownloadDocx}
-            disabled={!hasSchedule || generating || downloadingDocx}
-            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white px-3.5 sm:px-4 py-2.5 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-10.5 sm:min-h-0 shadow-xs border border-blue-400/30"
-            title="Download Word Document (.docx)"
-          >
-            {downloadingDocx ? (
-              <Loader2 className="w-4 h-4 animate-spin text-blue-200" />
-            ) : (
-              <FileText className="w-4 h-4 text-blue-200" />
-            )}
-            <span>{downloadingDocx ? 'Generating…' : 'Download DOCS'}</span>
-          </button>
           <ExportRoutineDropdown
             batchId={batchId}
             assignments={assignments}
