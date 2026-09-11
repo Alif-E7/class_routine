@@ -189,6 +189,36 @@ export const editApi = {
 export const exportApi = {
 
   /**
+   * Fetch a batch's routine as Word .docx and trigger a browser download.
+   * @param {number} batchId
+   * @returns {Promise<{filename: string, size: number}>}
+   */
+  async downloadDocx(batchId) {
+    const res = await api.get(`/batches/${batchId}/export.docx`, {
+      responseType: 'blob',
+    });
+    const filename = parseFilename(res.headers['content-disposition'])
+      || `routine_batch${batchId}.docx`;
+    saveBlob(res.data, filename);
+    return { filename, size: res.data.size };
+  },
+
+  /**
+   * Fetch a batch's routine as Tabular .csv from backend and trigger a browser download.
+   * @param {number} batchId
+   * @returns {Promise<{filename: string, size: number}>}
+   */
+  async downloadCsv(batchId) {
+    const res = await api.get(`/batches/${batchId}/export.csv`, {
+      responseType: 'blob',
+    });
+    const filename = parseFilename(res.headers['content-disposition'])
+      || `routine_batch${batchId}.csv`;
+    saveBlob(res.data, filename);
+    return { filename, size: res.data.size };
+  },
+
+  /**
    * Fetch a batch's routine as .pdf and trigger a browser download.
    * Backend may return 501 PDF_UNAVAILABLE if LibreOffice isn't
    * installed on the server.

@@ -1,3 +1,11 @@
 {
-	"manuallyDisabled": false
+	"manuallyDisabled": false,
+	"cutoverAttemptedAtMs": 1788974202826,
+	"cutoverFence": {
+		"reason": "cutover to sqlite",
+		"at": "2026-09-09T17:16:43.034Z",
+		"tips": {
+			"c:\\Class_Routine": "c7e6f24c8033a88f447c68807b08acba0b6cb448"
+		}
+	}
 }

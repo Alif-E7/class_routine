@@ -25,6 +25,8 @@ import CourseDetailModal from '../components/CourseDetailModal';
 import RoutineFilterBar from '../components/RoutineFilterBar';
 import AddToClassRoutineModal from '../components/AddToClassRoutineModal';
 import DownloadPdfButton from '../components/DownloadPdfButton';
+import ExportRoutineDropdown from '../components/ExportRoutineDropdown';
+import { exportRoutineToCsv } from '../utils/csvExport';
 
 /**
  * RoutinePage — view / re-generate the routine for one upload batch.
@@ -267,14 +269,30 @@ const RoutinePage = () => {
           </div>
         </div>
         <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2 sm:gap-3 w-full md:w-auto">
-          <DownloadPdfButton
+          <button
+            type="button"
+            onClick={() => exportRoutineToCsv({ assignments, teachers, filename: batch?.filename || 'routine' })}
+            disabled={!hasSchedule || generating}
+            className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white px-3.5 sm:px-4 py-2.5 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-10.5 sm:min-h-0 shadow-xs border border-emerald-400/30"
+            title="Download Tabular CSV (1-click export for class notifications & spreadsheets)"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+            <span>Download CSV</span>
+            <span className="hidden sm:inline-block bg-emerald-700/80 text-[10px] font-bold px-1.5 py-0.5 rounded text-emerald-100">
+              Notification Ready
+            </span>
+          </button>
+          <ExportRoutineDropdown
+            batchId={batchId}
+            assignments={assignments}
+            teachers={teachers}
             filename={batch?.filename || 'routine'}
             disabled={!hasSchedule || generating}
           />
           <button
             onClick={handleGenerate}
             disabled={generating}
-            className="w-full sm:w-auto bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white px-4 py-2.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 min-h-[42px] sm:min-h-0 shadow-md"
+            className="w-full sm:w-auto bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white px-4 py-2.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 min-h-10.5 sm:min-h-0 shadow-md"
           >
             {generating ? (
               <>

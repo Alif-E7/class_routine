@@ -108,11 +108,21 @@ async function loadExportData(batchId) {
     [batchId]
   );
 
+  let courseRows = [];
+  try {
+    const [rows] = await pool.query(
+      `SELECT course_code, course_name FROM courses WHERE upload_batch_id = ?`,
+      [batchId]
+    );
+    courseRows = rows;
+  } catch (_) {}
+
   return {
     batch: batchRow,
     config,
     assignments: assignmentRows,
     teachers: teacherRows,
+    courses: courseRows,
   };
 }
 
@@ -123,6 +133,210 @@ function sanitizeForFilename(s) {
 function buildFilename(batch, ext) {
   return `routine_${sanitizeForFilename(batch.filename)}_batch${batch.id}.${ext}`;
 }
+
+function formatTimeHHMM(minutes) {
+  if (minutes == null || Number.isNaN(minutes)) return '';
+  const m = Number(minutes);
+  const hh = String(Math.floor(m / 60)).padStart(2, '0');
+  const mm = String(m % 60).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function formatTime12(minutes) {
+  if (minutes == null || Number.isNaN(minutes)) return '';
+  const m = Number(minutes);
+  const h24 = Math.floor(m / 60);
+  const mins = m % 60;
+  const ampm = h24 >= 12 ? 'PM' : 'AM';
+  let h12 = h24 % 12;
+  if (h12 === 0) h12 = 12;
+  return `${h12}:${String(mins).padStart(2, '0')} ${ampm}`;
+}
+
+function escapeCsvField(val) {
+  if (val == null) return '';
+  const s = String(val);
+  if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+const DAY_ORDER = { SUN: 1, MON: 2, TUE: 3, WED: 4, THU: 5, FRI: 6, SAT: 7 };
+
+function generateRoutineCsv({ assignments, teachers = [], courses = [] }) {
+  const teacherMap = new Map(teachers.map((t) => [t.abbreviation, t.full_name || '']));
+  const courseMap = new Map(courses.map((c) => [c.course_code, c.course_name || '']));
+
+  const sorted = [...assignments].sort((a, b) => {
+    const dA = DAY_ORDER[String(a.day).toUpperCase()] || 99;
+    const dB = DAY_ORDER[String(b.day).toUpperCase()] || 99;
+    if (dA !== dB) return dA - dB;
+    const ysA = String(a.year_sem || '');
+    const ysB = String(b.year_sem || '');
+    if (ysA !== ysB) return ysA.localeCompare(ysB);
+    const sA = Number(a.slot_start) || 0;
+    const sB = Number(b.slot_start) || 0;
+    if (sA !== sB) return sA - sB;
+    return String(a.course_code || '').localeCompare(String(b.course_code || ''));
+  });
+
+  const headers = [
+    'Day',
+    'YearSemester',
+    'CourseCode',
+    'CourseTitle',
+    'Teacher',
+    'TeacherFullName',
+    'Room',
+    'StartTime',
+    'EndTime',
+    'TimeSlot',
+  ];
+
+  const rows = [headers.join(',')];
+
+  for (const a of sorted) {
+    const startTime24 = formatTimeHHMM(a.slot_start);
+    const endTime24 = formatTimeHHMM(a.slot_end);
+    const start12 = formatTime12(a.slot_start);
+    const end12 = formatTime12(a.slot_end);
+    const timeSlot = start12 && end12 ? `${start12} - ${end12}` : '';
+    const teacherName = teacherMap.get(a.teacher_abbr) || '';
+    const courseTitle = courseMap.get(a.course_code) || '';
+
+    const row = [
+      escapeCsvField(a.day),
+      escapeCsvField(a.year_sem),
+      escapeCsvField(a.course_code),
+      escapeCsvField(courseTitle),
+      escapeCsvField(a.teacher_abbr),
+      escapeCsvField(teacherName),
+      escapeCsvField(a.room_id),
+      escapeCsvField(startTime24),
+      escapeCsvField(endTime24),
+      escapeCsvField(timeSlot),
+    ];
+    rows.push(row.join(','));
+  }
+
+  return rows.join('\r\n');
+}
+
+// ---------------------------------------------------------------------------
+// DOCX endpoint
+// ---------------------------------------------------------------------------
+
+router.get('/:id/export.docx', async (req, res, next) => {
+  const batchId = parseBatchId(req.params.id);
+  if (batchId == null) {
+    return res.status(400).json({
+      success: false,
+      code: 'INVALID_BATCH_ID',
+      message: 'batch id must be a positive integer',
+    });
+  }
+
+  try {
+    const loaded = await loadExportData(batchId);
+    if (loaded.error) {
+      return res.status(loaded.error.status).json({
+        success: false,
+        code: loaded.error.code,
+        message: loaded.error.message,
+        ...(loaded.error.extra || {}),
+      });
+    }
+
+    if (loaded.assignments.length === 0) {
+      return res.status(422).json({
+        success: false,
+        code: 'NO_SCHEDULE',
+        message: 'This batch has no generated schedule. Call POST /api/batches/:id/generate first.',
+      });
+    }
+
+    const days = String(loaded.config.working_days || 'SUN,MON,TUE,WED,THU')
+      .split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+
+    const docxBuf = await generateRoutinePdf({
+      assignments: loaded.assignments,
+      header: {
+        university: loaded.config.university || 'University',
+        department: loaded.config.department || 'Department',
+        semester: loaded.config.semester || loaded.batch.semester || '',
+        year: loaded.config.year || loaded.batch.year || '',
+      },
+      teachers: loaded.teachers,
+      config: loaded.config,
+      days,
+    });
+
+    const filename = buildFilename(loaded.batch, 'docx');
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`
+    );
+    res.setHeader('Content-Length', docxBuf.length);
+    return res.status(200).send(docxBuf);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// CSV endpoint (Tabular / List CSV for notifications & data processing)
+// ---------------------------------------------------------------------------
+
+router.get('/:id/export.csv', async (req, res, next) => {
+  const batchId = parseBatchId(req.params.id);
+  if (batchId == null) {
+    return res.status(400).json({
+      success: false,
+      code: 'INVALID_BATCH_ID',
+      message: 'batch id must be a positive integer',
+    });
+  }
+
+  try {
+    const loaded = await loadExportData(batchId);
+    if (loaded.error) {
+      return res.status(loaded.error.status).json({
+        success: false,
+        code: loaded.error.code,
+        message: loaded.error.message,
+        ...(loaded.error.extra || {}),
+      });
+    }
+
+    if (loaded.assignments.length === 0) {
+      return res.status(422).json({
+        success: false,
+        code: 'NO_SCHEDULE',
+        message: 'This batch has no generated schedule. Call POST /api/batches/:id/generate first.',
+      });
+    }
+
+    const csvContent = generateRoutineCsv(loaded);
+    const filename = buildFilename(loaded.batch, 'csv');
+    // Prepend UTF-8 BOM so spreadsheet viewers render unicode without distortion
+    const csvBuf = Buffer.from('\uFEFF' + csvContent, 'utf-8');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`
+    );
+    res.setHeader('Content-Length', csvBuf.length);
+    return res.status(200).send(csvBuf);
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // PDF endpoint

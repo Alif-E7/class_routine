@@ -112,7 +112,68 @@ const app = createApp();
 // Tests
 // -----------------------------------------------------------------------------
 
-// DOCX route removed, only PDF route tested below
+describe('GET /api/batches/:id/export.docx', () => {
+  beforeEach(() => { poolMock._reset(); });
+
+  test('returns 200 application/vnd.openxmlformats-officedocument.wordprocessingml.document on success', async () => {
+    const res = await request(app).get('/api/batches/1/export.docx');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('officedocument.wordprocessingml.document');
+    expect(res.headers['content-disposition']).toMatch(/^attachment; filename="routine_good_xlsx_batch1\.docx"$/);
+    expect(Number(res.headers['content-length'])).toBeGreaterThan(0);
+    expect(Buffer.isBuffer(res.body) || typeof res.body === 'object').toBe(true);
+  });
+
+  test('returns 400 / 404 / 409 / 422 for error conditions', async () => {
+    const a = await request(app).get('/api/batches/abc/export.docx');
+    expect(a.status).toBe(400);
+    expect(a.body.code).toBe('INVALID_BATCH_ID');
+
+    const b = await request(app).get('/api/batches/999/export.docx');
+    expect(b.status).toBe(404);
+    expect(b.body.code).toBe('BATCH_NOT_FOUND');
+
+    const c = await request(app).get('/api/batches/2/export.docx');
+    expect(c.status).toBe(409);
+    expect(c.body.code).toBe('BATCH_NOT_READY');
+
+    const d = await request(app).get('/api/batches/4/export.docx');
+    expect(d.status).toBe(422);
+    expect(d.body.code).toBe('NO_SCHEDULE');
+  });
+});
+
+describe('GET /api/batches/:id/export.csv', () => {
+  beforeEach(() => { poolMock._reset(); });
+
+  test('returns 200 text/csv with formatted tabular schedule', async () => {
+    const res = await request(app).get('/api/batches/1/export.csv');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.headers['content-disposition']).toMatch(/^attachment; filename="routine_good_xlsx_batch1\.csv"$/);
+    expect(res.text).toContain('Day,YearSemester,CourseCode,CourseTitle,Teacher,TeacherFullName,Room,StartTime,EndTime,TimeSlot');
+    expect(res.text).toContain('SUN,1-1,C1');
+    expect(res.text).toContain('09:00,09:50');
+  });
+
+  test('returns 400 / 404 / 409 / 422 on invalid batches', async () => {
+    const a = await request(app).get('/api/batches/0/export.csv');
+    expect(a.status).toBe(400);
+    expect(a.body.code).toBe('INVALID_BATCH_ID');
+
+    const b = await request(app).get('/api/batches/999/export.csv');
+    expect(b.status).toBe(404);
+    expect(b.body.code).toBe('BATCH_NOT_FOUND');
+
+    const c = await request(app).get('/api/batches/2/export.csv');
+    expect(c.status).toBe(409);
+    expect(c.body.code).toBe('BATCH_NOT_READY');
+
+    const d = await request(app).get('/api/batches/4/export.csv');
+    expect(d.status).toBe(422);
+    expect(d.body.code).toBe('NO_SCHEDULE');
+  });
+});
 
 describe('GET /api/batches/:id/export.pdf', () => {
   let spawnSpy;
