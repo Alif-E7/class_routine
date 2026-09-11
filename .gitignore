@@ -62,6 +62,7 @@ test_*.js
 .gemini/
 .claude/
 .agents/
+.jolli/
 
 # ==========================================
 # Editor & Operating System Metadata

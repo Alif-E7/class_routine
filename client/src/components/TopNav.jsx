@@ -1,9 +1,11 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Upload, History, Waves } from 'lucide-react';
+import { Upload, History, Waves, LogIn, LogOut, ShieldCheck } from 'lucide-react';
 import { clsx } from 'clsx';
+import { useAuth } from '../contexts/AuthContext';
 
 const TopNav = () => {
   const location = useLocation();
+  const { user, logout } = useAuth();
 
   const navLink = (to, label, Icon, exact = false) => {
     const isActive = exact
@@ -48,9 +50,33 @@ const TopNav = () => {
         </nav>
       </div>
 
-      {/* Right — Quick Status */}
-      <div className="flex items-center gap-2 text-xs text-sky-300/70 font-medium">
-        <span className="hidden sm:inline-block">Class Routine Generator</span>
+      {/* Right — Auth & Status */}
+      <div className="flex items-center gap-3 text-xs">
+        <span className="hidden md:inline-block text-sky-300/60 font-medium mr-1">Class Routine Generator</span>
+        {user ? (
+          <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-500/10 border border-sky-400/20 text-sky-300">
+              <ShieldCheck className="w-3.5 h-3.5 text-sky-400" />
+              <span className="font-medium text-xs max-w-36 truncate">{user.email || 'Admin'}</span>
+            </div>
+            <button
+              onClick={logout}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors text-xs font-medium"
+              title="Sign Out"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sign Out</span>
+            </button>
+          </div>
+        ) : (
+          <Link
+            to="/login"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 hover:text-white border border-sky-400/30 text-xs font-semibold tracking-wide transition-all active:scale-95"
+          >
+            <LogIn className="w-3.5 h-3.5" />
+            <span>Sign In</span>
+          </Link>
+        )}
       </div>
     </header>
   );

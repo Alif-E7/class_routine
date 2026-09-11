@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Eye, EyeOff, LogIn, Waves, Shield, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -85,7 +85,7 @@ const LoginPage = () => {
                 type="email"
                 required
                 autoComplete="email"
-                placeholder="admin@routine.local"
+                placeholder="admin_cse@gmail.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-600 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-sky-500/50 focus:border-sky-500/40 transition-all"
@@ -134,14 +134,15 @@ const LoginPage = () => {
             </button>
           </form>
 
-          {/* Footer note */}
-          <p className="text-center text-xs text-slate-600 mt-5">
-            Public routines are viewable on the{' '}
-            <a href="/" className="text-sky-400 hover:text-sky-300 underline underline-offset-2 transition-colors">
-              Class Routines
-            </a>{' '}
-            page without login.
-          </p>
+          {/* Footer link */}
+          <div className="text-center mt-5">
+            <Link
+              to="/history"
+              className="text-xs text-sky-400/80 hover:text-sky-300 transition-colors inline-flex items-center gap-1"
+            >
+              &larr; Back to UniRoutine Batches
+            </Link>
+          </div>
         </div>
       </div>
     </div>

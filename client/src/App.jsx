@@ -5,6 +5,7 @@ import Layout from './components/Layout';
 import UploadPage from './pages/UploadPage';
 import HistoryPage from './pages/HistoryPage';
 import RoutinePage from './pages/RoutinePage';
+import LoginPage from './pages/LoginPage';
 import ErrorBoundary from './components/ErrorBoundary';
 
 function App() {
@@ -20,6 +21,9 @@ function App() {
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/batches/:id" element={<RoutinePage />} />
           </Route>
+
+          {/* Admin Login */}
+          <Route path="/login" element={<LoginPage />} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/history" replace />} />
